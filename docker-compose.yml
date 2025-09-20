@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: ctpathology-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      TZ: "Europe/Amsterdam"
+      PGTZ: "Europe/Amsterdam"
+    ports:
+      - "5444:5432"            # наружный порт -> порт контейнера
+    volumes:
+      - db_data:/var/lib/postgresql/data:rw
+      - ./database/create_table.sql:/docker-entrypoint-initdb.d/01_create_table.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+volumes:
+  db_data:
+
+networks:
+  backend:
+    driver: bridge
+
