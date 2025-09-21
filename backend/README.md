@@ -164,7 +164,6 @@ Path: id (uuid)
 200 application/json
 {
   "ok": true,
-  "model_version": "stub-0.1",
   "result": {
     "has_pathology": true,
     "label": "nodule",
@@ -197,7 +196,6 @@ Path: id (uuid)
     "processing_status": "Success",
     "time_of_processing": 0.21
   },
-  "model_version": "stub-0.1",
   "processed_at": "2025-09-20T10:05:00Z"
 }
 404 application/json { "error": "Scan not found" }

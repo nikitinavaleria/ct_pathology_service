@@ -162,7 +162,6 @@ def create_router(db, ml):
                 """UPDATE scans
                    SET model_status='ok',
                        model_result_json=%s,
-                       model_version=%s,
                        processed_at=NOW(),
                        report_json=%s,
                        updated_at=NOW()
@@ -170,7 +169,7 @@ def create_router(db, ml):
                 """,
                 [Json(result), getattr(ml, "version", "unknown"), Json(report), str(id)]
             )
-            return {"ok": True, "model_version": getattr(ml, "version", "unknown"), "result": result, "report": report}
+            return {"ok": True, "result": result, "report": report}
 
         except Exception as e:
             dt = round(time.perf_counter() - t0, 3)
@@ -187,7 +186,6 @@ def create_router(db, ml):
                 """UPDATE scans
                    SET model_status='failed',
                        model_result_json=%s,
-                       model_version=%s,
                        processed_at=NOW(),
                        report_json=%s,
                        updated_at=NOW()
@@ -200,14 +198,13 @@ def create_router(db, ml):
     @router.get("/{id}/report")
     def scan_report(id: UUID):
         row = db.fetch_one(
-            "SELECT report_json, model_version, processed_at FROM scans WHERE id=%s",
+            "SELECT report_json, processed_at FROM scans WHERE id=%s",
             [str(id)],
         )
         if not row:
             raise HTTPException(404, "Scan not found")
         return {
             "report": row["report_json"] or {},
-            "model_version": row.get("model_version"),
             "processed_at": row.get("processed_at")
         }
 

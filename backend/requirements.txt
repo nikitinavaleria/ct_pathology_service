@@ -5,3 +5,6 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 python-dotenv==1.0.1
+environs==9.5.0
+marshmallow==3.20.1
+python-multipart==0.0.9

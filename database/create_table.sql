@@ -68,7 +68,6 @@ CREATE TABLE IF NOT EXISTS scans (
                                        --   "processing_status": String,
                                        --   "time_of_processing": Float
                                        -- }
-  model_version      TEXT,
   processed_at       TIMESTAMPTZ,
 
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),

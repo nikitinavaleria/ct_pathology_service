@@ -3,6 +3,7 @@ from typing import Any, Dict
 from fastapi import FastAPI
 import uvicorn
 
+from backend.app.config.config import Config, load_config
 from backend.app.db.db import DB_Connector
 from backend.app.ml.model_class import Model
 from backend.app.routers import patients, scans, bulk
@@ -10,15 +11,17 @@ from backend.app.routers import patients, scans, bulk
 API_PREFIX = os.getenv("API_PREFIX", "/api")
 app = FastAPI(title="CT Pathology Service")
 
-POSTGRE_CONNECTION_PARAMS: Dict[str, Any] = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "5444")),
-    "dbname": os.getenv("DB_NAME", "app_ctpathology"),
-    "user": os.getenv("DB_USER", "lerchik"),
-    "password": os.getenv("DB_PASSWORD", "superstar")
+config: Config = load_config('.env')
+
+conn_info = {
+    "host": config.db.host,
+    "port": config.db.port,
+    "dbname": config.db.dbname,
+    "user": config.db.user,
+    "password": config.db.password
 }
 
-db = DB_Connector(POSTGRE_CONNECTION_PARAMS)
+db = DB_Connector(conn_info)
 ml = Model()
 
 
@@ -36,14 +39,4 @@ if __name__ == "__main__":
 
 
 # TODO обработка формата
-# TODO поменять выход модели, убрать model_version
-# "model_version": "stub-0.1",
-#     "result": {
-#         "has_pathology": true,
-#         "label": "opacity",
-#         "confidence": 0.91,
-#         "extras": {
-#             "deterministic_per_file": true,
-#             "pathology_rate": 0.5
-#         }
-#     }
+# TODO докер на бэк
