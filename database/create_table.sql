@@ -1,11 +1,11 @@
 -- ===============================
--- CT Pathology Service — schema
+-- CT Pathology Service — schema (simplified)
 -- ===============================
 
 -- UUID генератор
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Универсальная функция для авто-обновления updated_at
+-- Функция для авто-обновления updated_at
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -28,11 +28,9 @@ CREATE TABLE IF NOT EXISTS patients (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Индекс для поиска по ФИО
 CREATE INDEX IF NOT EXISTS idx_patients_name
   ON patients (last_name, first_name);
 
--- Триггер на updated_at
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -45,40 +43,43 @@ BEGIN
 END $$;
 
 -- ---------------------------------
--- Таблица сканов (исследований)
+-- Таблица исследований (один ZIP на запись)
 -- ---------------------------------
 CREATE TABLE IF NOT EXISTS scans (
   id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   patient_id         UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
 
   description        TEXT,
-  file_name          TEXT NOT NULL,   -- исходное имя файла
-  file_bytes         BYTEA NOT NULL,  -- сам файл (DICOM/архив и т.п.)
+  file_name          TEXT  NOT NULL,             -- имя загруженного ZIP
+  file_bytes         BYTEA NOT NULL,             -- сам ZIP
 
-  -- Поля для результатов модели (единичный анализ)
-  model_status       TEXT CHECK (model_status IN ('pending','ok','failed')),
-  model_result_json  JSONB,           -- «сырой» JSON от модели (гибкий формат)
-  report_json        JSONB,           -- итоговый отчёт по ТЗ (ключи см. ниже)
-                                       -- {
-                                       --   "path_to_study": String,
-                                       --   "study_uid": String,
-                                       --   "series_uid": String,
-                                       --   "probability_of_pathology": Float,
-                                       --   "pathology": Integer,
-                                       --   "processing_status": String,
-                                       --   "time_of_processing": Float
-                                       -- }
-  processed_at       TIMESTAMPTZ,
+  -- ЕДИНЫЙ отчёт по ТЗ в JSON (массив строк-объектов по всем файлам внутри ZIP)
+  -- Строго ожидается массив вида:
+  -- [
+  --   {
+  --     "path_to_study": "cases/001/ct1.dcm",
+  --     "study_uid": "1.2.840....",
+  --     "series_uid": "1.2.840....",
+  --     "probability_of_pathology": 0.91,
+  --     "pathology": 1,
+  --     "processing_status": "Success",
+  --     "time_of_processing": 0.37
+  --   },
+  --   ...
+  -- ]
+  report_json        JSONB NOT NULL DEFAULT '[]'::jsonb
+                     CHECK (jsonb_typeof(report_json) = 'array'),
+
+  -- Готовый XLSX-отчёт по тем же данным (опционально)
+  report_xlsx        BYTEA,
 
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Индекс по пациенту
 CREATE INDEX IF NOT EXISTS idx_scans_patient
   ON scans (patient_id);
 
--- Триггер на updated_at
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -90,41 +91,3 @@ BEGIN
   END IF;
 END $$;
 
--- ---------------------------------
--- Bulk-запуски (ZIP) с XLSX-отчётом
--- ---------------------------------
-CREATE TABLE IF NOT EXISTS bulk_runs (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  file_name     TEXT        NOT NULL,  -- имя загруженного ZIP
-  zip_bytes     BYTEA       NOT NULL,  -- исходный ZIP (храним в БД)
-  status        TEXT        NOT NULL DEFAULT 'done'
-                   CHECK (status IN ('queued','processing','done','failed')),
-  total_files   INTEGER     NOT NULL DEFAULT 0,
-  errors        INTEGER     NOT NULL DEFAULT 0,
-  positives     INTEGER     NOT NULL DEFAULT 0,
-
-  report_xlsx   BYTEA,                 -- готовый XLSX-отчёт
-  error_msg     TEXT,
-
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  finished_at   TIMESTAMPTZ
-);
-
--- Индекс по времени создания (для списков)
-CREATE INDEX IF NOT EXISTS idx_bulk_runs_created
-  ON bulk_runs (created_at DESC);
-
--- Триггер на updated_at
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'trg_bulk_runs_updated_at'
-  ) THEN
-    CREATE TRIGGER trg_bulk_runs_updated_at
-      BEFORE UPDATE ON bulk_runs
-      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-  END IF;
-END $$;
-
--- Готово.

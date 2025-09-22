@@ -5,8 +5,7 @@ import uvicorn
 
 from backend.app.config.config import Config, load_config
 from backend.app.db.db import DB_Connector
-from backend.app.ml.model_class import Model
-from backend.app.routers import patients, scans, bulk
+from backend.app.routers import patients, scans
 
 API_PREFIX = os.getenv("API_PREFIX", "/api")
 app = FastAPI(title="CT Pathology Service")
@@ -22,21 +21,14 @@ conn_info = {
 }
 
 db = DB_Connector(conn_info)
-ml = Model()
-
 
 
 @app.get("/")
 def root():
     return {"ok": True, "docs": f"{API_PREFIX}/docs"}
 
-app.include_router(patients.create_router(db, ml), prefix=API_PREFIX)
-app.include_router(scans.create_router(db, ml),    prefix=API_PREFIX)
-app.include_router(bulk.create_router(db, ml),    prefix=API_PREFIX)
+app.include_router(patients.create_router(db), prefix=API_PREFIX)
+app.include_router(scans.create_router(db),    prefix=API_PREFIX)
 
 if __name__ == "__main__":
     uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000, reload=True)
-
-
-# TODO обработка формата
-# TODO докер на бэк

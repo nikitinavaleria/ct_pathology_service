@@ -5,7 +5,7 @@ from uuid import UUID
 from psycopg.types.json import Json
 from backend.app.schemas.schemas import ListResponse, PatientOut, PatientCreate, PatientUpdate
 
-def create_router(db, ml):
+def create_router(db):
     router = APIRouter(prefix="/patients", tags=["patients"])
 
     def _where_search(q: Optional[str]):
