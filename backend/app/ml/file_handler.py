@@ -3,14 +3,17 @@ import shutil
 from pathlib import Path
 from backend.app.ml.utils import detect_file_type, is_archive, extract_archive, analyze_file_dimensionality
 from backend.app.ml.dicom_converter import convert_dicom_to_png
+from backend.app.ml.classifier import classify_single_png
+from backend.app.ml.sequence_classifier import run_sequence_inference
 
 def process_uploaded_file(file_location, temp_dir, classification_model=None, sequence_model=None, val_transform=None, threshold=0.5, device='cpu'):
     """
     Основная функция обработки загруженного файла.
     Возвращает: словарь с результатами для JSONResponse.
     """
-    from classifier import classify_single_png
-    from sequence_classifier import run_sequence_inference
+    temp_dir = Path(temp_dir)
+    file_location = Path(file_location)
+
 
     # Определяем тип файла
     file_type = detect_file_type(str(file_location))
@@ -37,10 +40,15 @@ def process_uploaded_file(file_location, temp_dir, classification_model=None, se
                     png_files.append(str(dest))
             # Для архива — классифицируем все PNG
             classification_results = []
+
             for png in png_files:
                 if classification_model:
                     try:
+                        print(f"[DBG] classify: {png}")
+                        print('СУКАААА')
                         pred, prob = classify_single_png(png, classification_model, val_transform, threshold, device)
+                        print('БЛТБ')
+                        print(f"[DBG] result: {png} -> {pred} {prob:.4f}")
                         classification_results.append({
                             "file": os.path.basename(png),
                             "prediction": pred,
@@ -115,6 +123,7 @@ def process_uploaded_file(file_location, temp_dir, classification_model=None, se
             if classification_model:
                 try:
                     pred, prob = classify_single_png(png, classification_model, val_transform, threshold, device)
+                    print('ДА БЛТБ')
                     classification_results.append({
                         "file": os.path.basename(png),
                         "prediction": pred,

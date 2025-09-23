@@ -31,6 +31,7 @@ import time
 import zipfile
 from typing import Dict, List, Optional
 from uuid import UUID
+import os
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from openpyxl import Workbook
@@ -114,6 +115,16 @@ def create_router(db):
         if _cls_model["obj"] is None:
             _cls_model["obj"] = load_pathology_model(MODELS_DIR / "pathology_classifier.pth", device=DEVICE)
             _cls_model["obj"].eval()
+
+            # 🚀 Самотест
+            import torch, time
+            x = torch.zeros(1, 1, 224, 224, dtype=torch.float32, device=DEVICE)
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                y = _cls_model["obj"](x)
+            print(f"[SANITY] forward ok, logits.shape={tuple(y.shape)}, {time.perf_counter() - t0:.4f}s")
+
+
         if _threshold["val"] is None:
             _threshold["val"] = float(load_pathology_threshold(MODELS_DIR / "pathology_threshold_f1.pkl"))
         if _seq_model["obj"] is None:
@@ -169,18 +180,17 @@ def create_router(db):
         if not exists:
             raise HTTPException(404, "Patient not found")
 
-        # строго требуем ZIP
-        orig_name = (file.filename or "").strip() or "file.zip"
-        if not orig_name.lower().endswith(".zip"):
-            raise HTTPException(400, "Only .zip is accepted")
-
-        content = file.file.read()
-
-        # быстрая валидация, что ZIP не битый
+        # 2) читаем файл «как есть»
         try:
-            zipfile.ZipFile(io.BytesIO(content)).testzip()
-        except zipfile.BadZipFile:
-            raise HTTPException(400, "Corrupted ZIP")
+            content = file.file.read()  # bytes
+        except Exception:
+            raise HTTPException(400, "Failed to read uploaded file")
+
+        if not content:
+            raise HTTPException(400, "Empty file")
+
+        # 3) оригинальное имя (без директорий), без принудительного .zip
+        orig_name = os.path.basename((file.filename or "").strip()) or "upload.bin"
 
         row = db.execute_returning(
             """INSERT INTO scans (patient_id, description, file_name, file_bytes)
@@ -241,12 +251,7 @@ def create_router(db):
 
     @router.post("/{id}/analyze")
     def analyze_scan(id: UUID):
-        """
-        Берём исходные bytes ZIP из БД -> кладём во временный файл ->
-        отдаём путь в process_uploaded_file коллеги.
-        Там уже: определение типа (включая архив), распаковка, ветка single/sequence,
-        классификация и сбор результатов.
-        """
+
         row = db.fetch_one("SELECT file_name, file_bytes FROM scans WHERE id=%s", [str(id)])
         if not row:
             raise HTTPException(404, "Scan not found")
@@ -265,6 +270,7 @@ def create_router(db):
 
             # единый вход: файл может быть zip/dcm/png/jpg/nii — модуль сам разберётся
             try:
+
                 result = process_uploaded_file(file_location = str(zip_path),
                                                temp_dir = str(tmpdir_path),
                                                classification_model = _cls_model["obj"],
@@ -272,12 +278,29 @@ def create_router(db):
                                                val_transform = None,
                                                threshold = _threshold["val"],
                                                device = DEVICE)
+
+                print(result)
+
             except Exception:
                 result = {"classification_results": [], "processing_time": 0.0}
 
-        # Маппинг результата коллеги -> твои строки отчёта
-        rows: List[Dict] = []
-        items = result.get("classification_results", []) or []
+        # --- Маппинг результата коллеги -> одна строка отчёта на файл ---
+        raw = result or {}
+
+        # Достаём items из возможных структур
+        items = raw.get("classification_results") or raw.get("items")
+        if items is None:
+            maybe_results = raw.get("results")
+            if isinstance(maybe_results, dict) and "items" in maybe_results:
+                items = maybe_results["items"]
+            else:
+                items = maybe_results  # вдруг уже список
+
+        # Нормализуем к списку
+        if isinstance(items, dict):
+            items = [items]
+        if not isinstance(items, list):
+            items = []
 
         if not items:
             rows = [{
@@ -287,53 +310,51 @@ def create_router(db):
                 "probability_of_pathology": 0.0,
                 "pathology": 0,
                 "processing_status": "Failure",
-                "time_of_processing": float(result.get("processing_time", 0.0) or 0.0),
+                "time_of_processing": float(raw.get("processing_time", 0.0) or 0.0),
             }]
         else:
-            for it in items:
-                it_type = it.get("type")  # "single" или "sequence"
-                status = "Failure" if it.get("error") else "Success"
+            success_items = [it for it in items if not it.get("error")]
+            pathology_any = False
+            best_prob = 0.0
 
-                # путь к изучению
-                path_to_study = (
-                        it.get("path")
-                        or it.get("sequence_path")
-                        or it.get("source_path")
-                        or zip_name
-                )
-
-                # вероятность/метка (поддерживаем обе ветки)
-                if it_type == "sequence":
-                    prob = float(it.get("sequence_confidence") or it.get("probability") or 0.0)
-                    has = 1 if (it.get("sequence_prediction") == "Патология" or it.get(
-                        "prediction") == "Патология") else 0
-                else:
-                    prob = float(it.get("probability") or it.get("confidence") or 0.0)
-                    has = 1 if (it.get("prediction") == "Патология") else 0
-
-                # UID'ы мягко — если в элементе есть исходный DICOM
-                study_uid, series_uid = "", ""
+            def _to_float(v, default=0.0):
                 try:
-                    src_dcm = it.get("source_dicom")
-                    if src_dcm and pydicom:
-                        fbytes = Path(src_dcm).read_bytes()
-                        study_uid, series_uid = _safe_dicom_uids(fbytes)
-                except Exception:
-                    pass
+                    return float(v)
+                except (TypeError, ValueError):
+                    return default
 
-                rows.append(
-                    {
-                        "path_to_study": str(path_to_study),
-                        "study_uid": study_uid,
-                        "series_uid": series_uid,
-                        "probability_of_pathology": 0.0 if prob < 0.0 else 1.0 if prob > 1.0 else prob,
-                        "pathology": has,
-                        "processing_status": status,
-                        "time_of_processing": float(it.get("processing_time", 0.0) or 0.0),
-                    }
-                )
+            for it in items:
+                it_type = it.get("type")
+                if it_type == "sequence":
+                    p = _to_float(it.get("sequence_confidence", it.get("probability")))
+                    pred_path = (it.get("sequence_prediction") == "Патология") or (it.get("prediction") == "Патология")
+                else:
+                    p = _to_float(it.get("probability", it.get("confidence")))
+                    pred_path = (it.get("prediction") == "Патология")
 
-        # Генерим XLSX и сохраняем отчёт, как было
+                if p > best_prob:
+                    best_prob = p
+                if pred_path:
+                    pathology_any = True
+
+            total_time = raw.get("processing_time")
+            if total_time is None:
+                total_time = sum(_to_float(it.get("processing_time")) for it in items)
+
+            # аккуратно возьмём путь из первого удачного айтема, иначе имя загруженного файла
+            src_path = (success_items[0].get("file") or success_items[0].get("path")) if success_items else zip_name
+
+            rows = [{
+                "path_to_study": str(src_path or zip_name),
+                "study_uid": "",
+                "series_uid": "",
+                "probability_of_pathology": max(0.0, min(1.0, best_prob)),
+                "pathology": 1 if pathology_any else 0,
+                "processing_status": "Success" if success_items else "Failure",
+                "time_of_processing": float(total_time or 0.0),
+            }]
+
+        # --- дальше как было ---
         xlsx_bytes = _build_xlsx(rows)
         db.execute(
             """UPDATE scans
@@ -348,7 +369,12 @@ def create_router(db):
         has_pathology_any = any(
             (int(r.get("pathology", 0)) == 1) and (r.get("processing_status") == "Success") for r in rows
         )
-        return {"ok": True, "files_processed": len(rows), "has_pathology_any": has_pathology_any}
+
+        return {
+            "ok": True,
+            "files_processed": 1,  # <-- всегда одна запись на файл
+            "has_pathology_any": has_pathology_any
+        }
 
     @router.get("/{id}/report")
     def scan_report(id: UUID):
@@ -357,9 +383,7 @@ def create_router(db):
             raise HTTPException(404, "Scan not found")
 
         rows = row["report_json"] or []
-        has_pathology_any = any(
-            (int(r.get("pathology", 0)) == 1) and (r.get("processing_status") == "Success") for r in rows
-        )
+        has_pathology_any = any((int(r.get("pathology", 0)) == 1) and (r.get("processing_status") == "Success") for r in rows)
         return {"rows": rows, "summary": {"has_pathology_any": has_pathology_any}}
 
     return router
