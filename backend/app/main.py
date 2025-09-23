@@ -2,10 +2,15 @@ import os
 from typing import Any, Dict
 from fastapi import FastAPI
 import uvicorn
+from pathlib import Path
 
 from backend.app.config.config import Config, load_config
 from backend.app.db.db import DB_Connector
-from backend.app.routers import patients, scans
+from backend.app.ml.pathology_model import PathologyModel
+from backend.app.routers import patients, scans, inference
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+MODELS_DIR = BACKEND_DIR / "models"
 
 API_PREFIX = os.getenv("API_PREFIX", "/api")
 app = FastAPI(title="CT Pathology Service")
@@ -22,13 +27,20 @@ conn_info = {
 
 db = DB_Connector(conn_info)
 
-
+model = PathologyModel(
+    model_path=MODELS_DIR / "pathology_classifier.pth",
+    threshold_path=MODELS_DIR / "pathology_threshold_f1.pkl",
+    slowfast_path=MODELS_DIR / "slowfast.ckpt",
+    device="cpu",
+    enable_sequence=False,  # True — только если реально нужен SlowFast
+)
 @app.get("/")
 def root():
     return {"ok": True, "docs": f"{API_PREFIX}/docs"}
 
 app.include_router(patients.create_router(db), prefix=API_PREFIX)
-app.include_router(scans.create_router(db),    prefix=API_PREFIX)
+app.include_router(scans.create_router(db, model),    prefix=API_PREFIX)
+app.include_router(inference.create_inference_router(model))
 
 if __name__ == "__main__":
     uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000, reload=True)
