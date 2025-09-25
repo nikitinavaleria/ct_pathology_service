@@ -1,12 +1,32 @@
-form {
-  display: flex;
-  flex-direction: row;
-  gap: 10px;
-  padding: 0 10px;
-  justify-content: center;
-  align-items: center;
+.searchContainer {
+  position: relative;
+  width: 250px;
 }
 
-input {
-  max-width: min-content;
+.searchInput {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.resultsList {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #ccc;
+  border-top: none;
+  z-index: 10;
+}
+
+.resultItem {
+  padding: 6px 10px;
+  cursor: pointer;
+  &:hover {
+    background-color: #f0f0f0;
+  }
 }

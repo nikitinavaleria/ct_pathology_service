@@ -18,6 +18,11 @@ const AddScanPage = () => {
     navigate(`/patient/${id}`);
   };
 
+  const handlePatientSelect = (selectedPatient) => {
+    setPatient(selectedPatient);
+    setIsFormVisible(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -28,9 +33,8 @@ const AddScanPage = () => {
         last_name: form.surname.value,
         description: form.description.value,
       });
-      const patient = await getPatient(response.data.id);
-      setPatient(patient.data);
-      console.log(patient.data);
+      const patientData = await getPatient(response.data.id);
+      setPatient(patientData.data);
       setIsFormVisible(false);
     } catch (err) {
       console.error("Ошибка при создании пациента:", err);
@@ -42,12 +46,15 @@ const AddScanPage = () => {
       <header className="page__header">
         <h1 className="page__title">Добавить исследование</h1>
 
-        <PatientsSearch />
-        <MyButton
-          className="page__header-buttons"
-          onClick={() => setIsFormVisible((prev) => !prev)}>
-          {isFormVisible ? "Скрыть форму" : "Новый пациент"}
-        </MyButton>
+        <PatientsSearch onSelect={handlePatientSelect} />
+
+        {!patient && (
+          <MyButton
+            className="page__header-buttons"
+            onClick={() => setIsFormVisible((prev) => !prev)}>
+            {isFormVisible ? "Скрыть форму" : "Новый пациент"}
+          </MyButton>
+        )}
       </header>
 
       <main className="page__body">
@@ -88,6 +95,7 @@ const AddScanPage = () => {
           </form>
         )}
 
+        {/* Карточка выбранного пациента */}
         {patient && (
           <PatientCard
             key={patient.id}
@@ -100,8 +108,10 @@ const AddScanPage = () => {
           />
         )}
 
+        {/* Название исследования */}
         <input type="text" placeholder="Название исследования" />
 
+        {/* Dropzone доступен только если пациент выбран */}
         <Dropzone patientId={patient ? patient.id : null} description={""} />
 
         <p>
