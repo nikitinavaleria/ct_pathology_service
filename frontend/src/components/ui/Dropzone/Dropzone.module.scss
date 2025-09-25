@@ -1,0 +1,26 @@
+.dropzone {
+  width: 300px;
+  height: 200px;
+  padding: 2rem;
+  border: 2px dashed #aaa;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-family: sans-serif;
+  cursor: pointer;
+  transition: background 0.3s;
+  margin-bottom: 1rem;
+
+  &.dragover {
+    background: #f0f8ff;
+    border-color: #007bff;
+    color: #007bff;
+  }
+}
+
+.fileList {
+  font-family: sans-serif;
+  padding-left: 1rem;
+}

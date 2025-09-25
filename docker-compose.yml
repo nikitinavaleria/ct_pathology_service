@@ -12,7 +12,7 @@ services:
       TZ: "Europe/Amsterdam"
       PGTZ: "Europe/Amsterdam"
     ports:
-      - "${DB_PORT}:5432"           # наружный порт -> порт контейнера
+      - "${DB_PORT}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data:rw
       - ./database/create_table.sql:/docker-entrypoint-initdb.d/01_create_table.sql:ro
@@ -26,8 +26,8 @@ services:
 
   api:
     build:
-      context: .                       # корень репо
-      dockerfile: backend/Dockerfile   # <-- используем наш Dockerfile в backend/
+      context: . # корень репо
+      dockerfile: backend/Dockerfile # <-- используем наш Dockerfile в backend/
     container_name: ctpathology-api
     restart: unless-stopped
     environment:
@@ -52,4 +52,3 @@ volumes:
 networks:
   backend:
     driver: bridge
-
