@@ -1,126 +1,122 @@
-# import torch
-# import torchvision.transforms as transforms
-# from PIL import Image
-#
-# def classify_single_png(png_path, model, transform, threshold, device):
-#     """
-#     Классифицирует один PNG-файл с использованием переданной модели.
-#
-#     Аргументы:
-#         png_path (str): путь к PNG-файлу
-#         model: загруженная PyTorch модель (должна быть в .eval() режиме)
-#         transform: torchvision.transforms.Compose — трансформ для входного изображения
-#         threshold (float): порог для бинарной классификации
-#         device: torch.device — устройство для вычислений
-#
-#     Возвращает:
-#         tuple: (prediction: str, probability: float)
-#         где prediction — "Норма" или "Патология"
-#     """
-#     try:
-#
-#         # Открываем изображение в grayscale
-#         image = Image.open(png_path).convert('L')
-#
-#
-#         # Применяем трансформ
-#         input_tensor = transform(image).unsqueeze(0).to(device)  # добавляем batch-размерность
-#         print('Эщкере3')
-#         # Предсказание
-#         with torch.no_grad():
-#             print('Эщкере4')
-#             output = model(input_tensor)
-#             print('Эщкере5')
-#             # Предполагаем, что выход — logits для 2 классов
-#             prob = torch.sigmoid(output[0, 0]).item()
-#
-#         # Применяем порог
-#         prediction = "Патология" if prob >= threshold else "Норма"
-#
-#         return prediction, prob
-#
-#     except Exception as e:
-#         raise RuntimeError(f"Ошибка при классификации {png_path}: {str(e)}")
-
-
 # backend/app/ml/classifier.py
-import time, os
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Tuple, Sequence
+
 import numpy as np
 import cv2
 import torch
-import torch.nn.functional as F
+from torch import nn
 
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-try:
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
-except Exception:
-    pass
-try:
-    torch.backends.mkldnn.enabled = False
-except Exception:
-    pass
 
-def _to_uint8(img: np.ndarray) -> np.ndarray:
-    if img.dtype == np.uint16:
-        maxv = int(img.max()) or 1
-        img = (img.astype(np.float32) * (255.0 / maxv)).clip(0, 255).astype(np.uint8)
-    elif img.dtype in (np.float32, np.float64):
-        img = (img * 255.0).clip(0, 255).astype(np.uint8)
-    return img
-
-def classify_single_png(png_path, model, transform, threshold, device):
-    t0 = time.perf_counter()
-    print(f"[DBG] start classify_single_png: {png_path}")
-
-    # читаем PNG (может быть 8/16 бит, 1/3 канал)
-    img = cv2.imread(str(png_path), cv2.IMREAD_UNCHANGED)
+def _read_grayscale_png(path: str) -> np.ndarray:
+    """Читает PNG как grayscale (H, W), uint8."""
+    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if img is None:
-        raise RuntimeError(f"cv2.imread returned None for {png_path}")
-    print(f"[DBG] read: shape={img.shape}, dtype={img.dtype}, t={time.perf_counter()-t0:.4f}s")
+        raise IOError(f"Failed to read image: {path}")
+    return img  # uint8 (H, W)
 
-    img = _to_uint8(img)
 
-    # -> строго в GRAY (1 канал)
-    if img.ndim == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # 512x512
-    # если уже 2D — оставляем как есть
+def _apply_transform(
+    img_gray_u8: np.ndarray,
+    transform,
+) -> np.ndarray:
+    """
+    Применяет Albumentations-трансформ из PathologyModel.
+    На вход: grayscale uint8 (H, W).
+    На выход: float32 (H, W), уже нормализованный.
+    """
+    if img_gray_u8.ndim != 2:
+        raise ValueError(f"Expected grayscale 2D image, got shape {img_gray_u8.shape}")
 
-    print(f"[DBG] to GRAY: shape={img.shape}, t={time.perf_counter()-t0:.4f}s")
+    # В ноутбуке: /255.0 до Normalize(max_pixel_value=1.0)
+    img_f = img_gray_u8.astype(np.float32) / 255.0
+    img_hwc1 = np.expand_dims(img_f, axis=-1)  # (H, W, 1)
 
-    # resize к 224x224
-    img = cv2.resize(img, (224, 224), interpolation=cv2.INTER_AREA)
+    if transform is None:
+        # fallback: normalize как (x-0.5)/0.5
+        x = (img_hwc1 - 0.5) / 0.5
+        return np.squeeze(x, axis=-1).astype(np.float32)
 
-    # HxW uint8 -> 1xHxW float32 [0..1] -> нормализация (один канал)
-    x = img.astype(np.float32) / 255.0
-    x = (x - 0.5) / 0.5  # при необходимости подстрой под твои статистики обучения
-    x = x[None, :, :]    # 1,H,W
-    xt = torch.from_numpy(x).unsqueeze(0).contiguous()  # 1,1,224,224
+    out = transform(image=img_hwc1)
+    img_out_hwc1 = out["image"]
+    if img_out_hwc1.ndim != 3 or img_out_hwc1.shape[2] != 1:
+        raise ValueError(f"Transform must keep single channel. Got {img_out_hwc1.shape}")
+    return np.squeeze(img_out_hwc1, axis=-1).astype(np.float32)  # (H, W)
 
-    print(f"[DBG] tensor ready: {tuple(xt.shape)} dtype={xt.dtype} t={time.perf_counter()-t0:.4f}s")
 
-    # девайс и форвард
-    try:
-        model.to(device)
-    except Exception as e:
-        print(f"[DBG] WARNING: model.to({device}) failed: {e}")
-    xt = xt.to(device, non_blocking=False)
-    print(f"[DBG] devices: input={xt.device} model_params={next(model.parameters()).device}")
+def _to_torch_tensor(img_hw: np.ndarray) -> torch.Tensor:
+    """(H, W) float32 → тензор [1, 1, H, W]."""
+    if img_hw.dtype != np.float32:
+        img_hw = img_hw.astype(np.float32)
+    x = torch.from_numpy(img_hw)[None, None, :, :]  # [1, 1, H, W]
+    return x
 
+
+def _infer_torch(
+    model: nn.Module,
+    x: torch.Tensor,
+    device: str = "cpu",
+) -> float:
+    """Torch-путь: model -> logits -> sigmoid -> prob."""
     model.eval()
     with torch.no_grad():
-        t1 = time.perf_counter()
-        logits = model.forward(xt)
-        print(f"[DBG] forward ok in {time.perf_counter()-t1:.4f}s; logits.shape={tuple(logits.shape)}")
+        x = x.to(device, non_blocking=True)
+        logits = model(x)
+        if logits.ndim == 2 and logits.shape[1] == 1:
+            logits = logits[:, 0]
+        elif logits.ndim != 1:
+            raise ValueError(f"Unexpected model output shape: {tuple(logits.shape)}")
+        probs = torch.sigmoid(logits)
+        prob = float(probs[0].item())
+    return prob
 
-    # бинарная вероятность
-    if logits.shape[1] == 1:
-        prob = torch.sigmoid(logits[0, 0]).item()
-    else:
-        p = F.softmax(logits, dim=1)[0]
-        prob = float(p[1].item() if p.shape[0] > 1 else p[0].item())
 
-    pred = "Патология" if prob >= float(threshold) else "Норма"
-    print(f"[DBG] done: pred={pred} prob={prob:.4f} total={time.perf_counter()-t0:.4f}s")
-    return pred, prob
+def classify_single_png(
+    png_path: str,
+    model: nn.Module,
+    transform,
+    threshold: float,
+    device: str = "cpu",
+) -> Tuple[str, float]:
+    """
+    Классифицирует один PNG.
+    Возвращает ("Патология" | "Здоров", prob).
+    """
+    # 1) чтение
+    img_u8 = _read_grayscale_png(png_path)
+
+    # 2) Albumentations-трансформ (ровно как в ноутбуке)
+    img_f = _apply_transform(img_u8, transform)  # (H, W), float32
+
+    # 3) в тензор и инференс
+    x = _to_torch_tensor(img_f)  # [1,1,H,W]
+    prob = _infer_torch(model, x, device=device)
+
+    # 4) постобработка
+    label = "Патология" if prob > float(threshold) else "Здоров"
+    return label, float(max(0.0, min(1.0, prob)))
+
+
+def classify_many_pngs(
+    png_paths: Sequence[str],
+    model: nn.Module,
+    transform,
+    device: str = "cpu",
+) -> np.ndarray:
+    """
+    Пакетная классификация (возвращает только вероятности).
+    Делает цикл по одному (надёжно и экономно).
+    """
+    if not png_paths:
+        return np.zeros((0,), dtype=np.float32)
+
+    out = []
+    for p in png_paths:
+        img_u8 = _read_grayscale_png(p)
+        img_f = _apply_transform(img_u8, transform)
+        x = _to_torch_tensor(img_f)
+        prob = _infer_torch(model, x, device=device)
+        out.append(prob)
+    return np.asarray(out, dtype=np.float32)

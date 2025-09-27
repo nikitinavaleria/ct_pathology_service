@@ -10,9 +10,8 @@ from psycopg.types.json import Json
 import tempfile
 from pathlib import Path
 
-from backend.app.ml.file_handler import process_uploaded_file
+
 from backend.app.ml.model_loader import load_pathology_model, load_pathology_threshold
-from backend.app.ml.sequence_classifier import load_slowfast_model
 from backend.app.schemas.schemas import ListResponse, ScanOut, ScanUpdate
 
 def create_router(db, model):

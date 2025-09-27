@@ -4,16 +4,32 @@ from __future__ import annotations
 import time
 import shutil
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, DefaultDict
+from collections import defaultdict
+
 import pydicom
+import numpy as np
+import cv2
+import albumentations as A
 
-from backend.app.ml.utils import detect_file_type, is_archive, extract_archive,analyze_file_dimensionality
-from backend.app.ml.dicom_converter import convert_dicom_to_png
+from backend.app.ml.utils import (
+    detect_file_type,
+    is_archive,
+    extract_archive,
+    analyze_file_dimensionality,
+)
+from backend.app.ml.dicom_converter import (
+    convert_dicom_to_png,
+    convert_dicom_series_to_png,
+)
 from backend.app.ml.classifier import classify_single_png
-from backend.app.ml.sequence_classifier import load_slowfast_model, run_sequence_inference
-from backend.app.ml.model_loader import load_pathology_model, load_pathology_threshold
+from backend.app.ml.model_loader import (
+    load_pathology_model,
+    load_pathology_threshold,
+)
 
 
+# --------------------------- helpers ---------------------------
 
 def _safe_dicom_uids(dcm_path: Path) -> Tuple[str, str]:
     """Аккуратно читаем StudyInstanceUID / SeriesInstanceUID из DICOM.
@@ -30,58 +46,79 @@ def _safe_dicom_uids(dcm_path: Path) -> Tuple[str, str]:
         return "", ""
 
 
+def _group_dicoms_by_series(dcm_paths: List[str]) -> Dict[str, List[str]]:
+    """Группируем DICOM-файлы по SeriesInstanceUID, чтобы корректно собирать серии."""
+    groups: DefaultDict[str, List[str]] = defaultdict(list)
+    for p in dcm_paths:
+        try:
+            ds = pydicom.dcmread(p, stop_before_pixels=True, force=True)
+            series_uid = str(getattr(ds, "SeriesInstanceUID", "")) or "__no_series__"
+        except Exception:
+            series_uid = "__no_series__"
+        groups[series_uid].append(p)
+    return groups
+
+
+# =========================== main class ===========================
+
 class PathologyModel:
     """Единая точка входа для модели.
 
     - инициализируется один раз в main (service)
-    - метод analyze(file_path, temp_dir) принимает dcm/png/jpg/zip/gz/tar
+    - метод analyze(file_path, temp_dir) принимает dcm/png/jpg/zip/gz/tar/папку
     - возвращает ОДНУ строку отчёта в нужном формате
     """
 
     def __init__(
-            self,
-            model_path: str | Path,
-            threshold_path: str | Path = None,
-            slowfast_path: str | Path = None,
-            device: str = "cpu",
-            enable_sequence: bool = False):
+        self,
+        model_path: str | Path,
+        threshold_path: str | Path = None,
+        device: str = "cpu",
+    ):
         self.device = device
-        self.enable_sequence = bool(enable_sequence)
-        self.model = load_pathology_model(model_path=model_path, device=device)
-        self.threshold = load_pathology_threshold(threshold_path=threshold_path)
-        self.sequence_model = None
-        if self.enable_sequence:
-            self.sequence_model = load_slowfast_model( checkpoint_path=str(slowfast_path),  device=device)
-        self.val_transform = None
 
-    # -------- публичный API --------
+        # Базовая 2D-модель (ResNet18 с 1 каналом) — как в ноутбуке
+        self.model = load_pathology_model(model_path=model_path, device=device)
+
+        # Порог (если нет файла — по умолчанию 0.5)
+        self.threshold = load_pathology_threshold(threshold_path=threshold_path)
+        if self.threshold is None:
+            self.threshold = 0.5
+
+        # === Валид. трансформ РОВНО как в ноутбуке коллеги ===
+        # Resize(512,512) -> CenterCrop(0.65H, 0.75W) -> Resize(512,512) -> Normalize(mean=[0.5], std=[0.5])
+        self.H, self.W = 512, 512
+        self.crop_h = int(self.H * 0.65)  # 332
+        self.crop_w = int(self.W * 0.75)  # 384
+
+        self.mean_val = [0.5]
+        self.std_val = [0.5]
+
+        self.val_transform = A.Compose(
+            [
+                A.Resize(self.H, self.W, interpolation=cv2.INTER_LINEAR),
+                A.CenterCrop(height=self.crop_h, width=self.crop_w, p=1.0),
+                A.Resize(self.H, self.W, interpolation=cv2.INTER_LINEAR),
+                A.Normalize(mean=self.mean_val, std=self.std_val, max_pixel_value=1.0),
+            ]
+        )
+
+        # Агрегация по кадрам — по умолчанию как в ноутбуке: 'max'
+        self.aggregation = "max"
+
+    # ------------------------ публичный API ------------------------
 
     def analyze(self, file_path: str, temp_dir: str) -> dict:
-        """Главный метод. Возвращает ОДНУ запись отчёта:
-        {
-            "pathology": 0/1,
-            "study_uid": "...",
-            "series_uid": "...",
-            "path_to_study": "имя файла или первый срез",
-            "processing_status": "Success"/"Failure: ...",
-            "time_of_processing": float,
-            "probability_of_pathology": float [0..1]
-        }
-        """
+        """Главный метод. Возвращает ОДНУ запись отчёта"""
         t0 = time.time()
         src_path = Path(file_path)
         tmp = Path(temp_dir)
 
-        # 1) тип + размерность (для логгирования/диагностики — пригодится)
         ftype = detect_file_type(str(src_path))
         _dimensionality, _num_images = analyze_file_dimensionality(str(src_path), ftype)
 
-        # 2) получить список PNG для инференса + маппинг PNG -> исходный DICOM (если был)
         png_list, png2dcm = self._prepare_pngs(src_path, tmp, ftype)
 
-        # 3) классификация
-        #    - если много кадров и включён sequence_model — можешь использовать его
-        #    - в любом случае вернём единую агрегированную строку отчёта
         try:
             best_prob: float = 0.0
             pathology_any: bool = False
@@ -90,48 +127,45 @@ class PathologyModel:
             study_uid: str = ""
             series_uid: str = ""
 
-            if self.enable_sequence and self.seq_model and len(png_list) > 1:
-                # Sequence inference (опционально)
-                seq_pred, seq_conf, _seq_class = run_sequence_inference(
-                    png_list, self.seq_model, self.device
+            probs: List[float] = []
+            first_png_name: Optional[str] = None
+
+            for i, png in enumerate(png_list):
+                pred, prob = classify_single_png(
+                    png_path=png,
+                    model=self.model,
+                    transform=self.val_transform,
+                    threshold=self.threshold,
+                    device=self.device,
                 )
-                best_prob = float(seq_conf)
-                pathology_any = (seq_pred == "Патология")
+                probs.append(float(prob))
+                if i == 0:
+                    first_png_name = Path(png).name
+
+            if probs:
+                if self.aggregation == "mean":
+                    patient_prob = float(np.mean(probs))
+                else:  # 'max'
+                    patient_prob = float(np.max(probs))
+                best_prob = patient_prob
+                pathology_any = patient_prob > float(self.threshold)
                 success = True
-                repr_path = Path(png_list[0]).name if png_list else src_path.name
 
-                # попробуем достать UID из первого кадра, если знаем исходный DICOM
-                if png_list:
-                    dcm_candidate = png2dcm.get(png_list[0])
-                    if dcm_candidate:
-                        study_uid, series_uid = _safe_dicom_uids(Path(dcm_candidate))
+                if self.aggregation == "max":
+                    max_idx = int(np.argmax(probs))
+                    repr_path = Path(png_list[max_idx]).name
+                    dcm_candidate = png2dcm.get(png_list[max_idx])
+                else:
+                    repr_path = first_png_name or src_path.name
+                    dcm_candidate = png2dcm.get(png_list[0]) if png_list else None
 
+                if dcm_candidate:
+                    study_uid, series_uid = _safe_dicom_uids(Path(dcm_candidate))
             else:
-                # Обычная одиночная классификация по кадрам, агрегируем лучший prob
-                for i, png in enumerate(png_list):
-                    pred, prob = classify_single_png(
-                        png,
-                        self.model,
-                        self.val_transform,
-                        self.threshold,
-                        self.device,
-                    )
-                    if prob > best_prob:
-                        best_prob = float(prob)
-                        pathology_any = (pred == "Патология")
-                        repr_path = Path(png).name
-                        # если этот png пришёл из DICOM — заполним UID'ы
-                        dcm_candidate = png2dcm.get(png)
-                        if dcm_candidate:
-                            study_uid, series_uid = _safe_dicom_uids(Path(dcm_candidate))
-                    success = True
-
-                # если не было ни одного png — попробуем трактовать как «пусто»
-                if not png_list:
-                    repr_path = src_path.name
+                repr_path = src_path.name
 
             status = "Success" if success else "Failure"
-            report_row = {
+            return {
                 "pathology": 1 if pathology_any else 0,
                 "study_uid": study_uid,
                 "series_uid": series_uid,
@@ -140,7 +174,6 @@ class PathologyModel:
                 "time_of_processing": round(time.time() - t0, 4),
                 "probability_of_pathology": round(max(0.0, min(1.0, best_prob)), 4),
             }
-            return report_row
 
         except Exception as e:
             return {
@@ -153,14 +186,12 @@ class PathologyModel:
                 "probability_of_pathology": 0.0,
             }
 
-    # -------- внутренняя кухня --------
+    # ------------------------ внутренние методы ------------------------
 
-    def _prepare_pngs(self, src_path: Path, tmp: Path, ftype: str) -> Tuple[List[str], dict]:
-        """
-        Возвращает:
-          - список путей PNG
-          - mapping {png_path -> source_dicom_path or None}
-        """
+    def _prepare_pngs(
+        self, src_path: Path, tmp: Path, ftype: str
+    ) -> Tuple[List[str], dict]:
+        """Готовим список PNG (после 10%→64) + mapping PNG->DICOM"""
         png_files: List[str] = []
         png2dcm: dict = {}
 
@@ -169,34 +200,71 @@ class PathologyModel:
 
         # архивы
         if ftype in ["zip", "gz", "tar", "unknown"] and is_archive(str(src_path)):
-            extracted = extract_archive(str(src_path), tmp)
-            for ef in extracted:
+            extracted_paths = extract_archive(str(src_path), tmp)
+            all_dicoms = [p for p in extracted_paths if detect_file_type(p) == "dcm"]
+            if all_dicoms:
+                groups = _group_dicoms_by_series(all_dicoms)
+                for _, dcm_group in groups.items():
+                    new_pngs = convert_dicom_series_to_png(dcm_group, str(converted_dir))
+                    png_files.extend(new_pngs)
+                    dcm_for_group = dcm_group[0]
+                    for png in new_pngs:
+                        png2dcm[png] = dcm_for_group
+            for ef in extracted_paths:
                 ft = detect_file_type(ef)
                 p = Path(ef)
-                if ft == "dcm":
-                    new_pngs = convert_dicom_to_png(ef, converted_dir)
-                    png_files.extend(new_pngs)
-                    for png in new_pngs:
-                        png2dcm[png] = ef  # помним, из какого DICOM родился этот PNG
-                elif ft in ["png", "jpg"]:
+                if ft in ["png", "jpg"]:
                     dst = converted_dir / p.name
                     shutil.copy(p, dst)
-                    png_files.append(str(dst))
-                    png2dcm[str(dst)] = None
+                    spath = str(dst)
+                    png_files.append(spath)
+                    png2dcm[spath] = None
+            return png_files, png2dcm
+
+        # папка
+        if src_path.is_dir():
+            dcm_paths = [
+                str(x)
+                for x in src_path.rglob("*")
+                if x.is_file() and x.suffix.lower() in {".dcm", ".dicom"}
+            ]
+            if dcm_paths:
+                groups = _group_dicoms_by_series(dcm_paths)
+                for _, dcm_group in groups.items():
+                    new_pngs = convert_dicom_series_to_png(dcm_group, str(converted_dir))
+                    png_files.extend(new_pngs)
+                    dcm_for_group = dcm_group[0]
+                    for png in new_pngs:
+                        png2dcm[png] = dcm_for_group
+            else:
+                img_paths = [
+                    str(x)
+                    for x in src_path.rglob("*")
+                    if x.is_file() and x.suffix.lower() in {".png", ".jpg", ".jpeg"}
+                ]
+                for p in img_paths:
+                    dst = converted_dir / Path(p).name
+                    shutil.copy(p, dst)
+                    spath = str(dst)
+                    png_files.append(spath)
+                    png2dcm[spath] = None
+            return png_files, png2dcm
 
         # одиночный DICOM
-        elif ftype == "dcm":
-            new_pngs = convert_dicom_to_png(str(src_path), converted_dir)
+        if ftype == "dcm":
+            new_pngs = convert_dicom_to_png(str(src_path), str(converted_dir))
             png_files.extend(new_pngs)
             for png in new_pngs:
                 png2dcm[png] = str(src_path)
+            return png_files, png2dcm
 
-        # одиночный PNG/JPG
-        elif ftype in ["png", "jpg"]:
+        # одиночное изображение
+        if ftype in ["png", "jpg"]:
             dst = converted_dir / src_path.name
             shutil.copy(src_path, dst)
-            png_files.append(str(dst))
-            png2dcm[str(dst)] = None
+            spath = str(dst)
+            png_files.append(spath)
+            png2dcm[spath] = None
+            return png_files, png2dcm
 
-        # другое — вернём пусто
         return png_files, png2dcm

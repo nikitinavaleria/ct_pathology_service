@@ -30,9 +30,7 @@ db = DB_Connector(conn_info)
 model = PathologyModel(
     model_path=MODELS_DIR / "pathology_classifier.pth",
     threshold_path=MODELS_DIR / "pathology_threshold_f1.pkl",
-    slowfast_path=MODELS_DIR / "slowfast.ckpt",
-    device="cpu",
-    enable_sequence=False,  # True — только если реально нужен SlowFast
+    device="cpu"
 )
 @app.get("/")
 def root():
