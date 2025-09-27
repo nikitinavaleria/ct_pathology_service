@@ -27,7 +27,7 @@ from backend.app.ml.model_loader import (
     load_pathology_model,
     load_pathology_threshold,
 )
-
+from backend.app.ml.explainability import compute_gradcam_base64
 
 # --------------------------- helpers ---------------------------
 
@@ -164,8 +164,36 @@ class PathologyModel:
             else:
                 repr_path = src_path.name
 
+            # -- вычисляем Grad-CAM всегда, но НЕ сохраняем на диск --
+            explain_heatmap_b64 = None
+            explain_mask_b64 = None
+            if success:
+                try:
+
+                    # лучший кадр: если agg == 'max', берём max_idx, иначе — первый
+                    if self.aggregation == "max" and 'max_idx' in locals() and 0 <= max_idx < len(png_list):
+                        best_png_path = png_list[max_idx]
+                    else:
+                        best_png_path = png_list[0] if png_list else None
+
+                    if best_png_path:
+                        exp = compute_gradcam_base64(
+                            png_path=best_png_path,
+                            model=self.model,
+                            transform=self.val_transform,
+                            device=self.device,
+                            target_layers=[self.model.layer4[-1]],
+                            top_percent=0.10,
+                        )
+                        explain_heatmap_b64 = exp["heatmap_b64"]
+                        explain_mask_b64 = exp["mask_b64"]
+                except Exception as _e:
+                    # Не валим пайплайн, просто не добавляем объяснение
+                    explain_heatmap_b64 = None
+                    explain_mask_b64 = None
+
             status = "Success" if success else "Failure"
-            return {
+            db_row = {
                 "pathology": 1 if pathology_any else 0,
                 "study_uid": study_uid,
                 "series_uid": series_uid,
@@ -175,15 +203,26 @@ class PathologyModel:
                 "probability_of_pathology": round(max(0.0, min(1.0, best_prob)), 4),
             }
 
+            # Возвращаем «две части»: db_row и explain_* для ответа API (БД — без base64)
+            return {
+                "db_row": db_row,
+                "explain_heatmap_b64": explain_heatmap_b64,
+                "explain_mask_b64": explain_mask_b64,
+            }
+
         except Exception as e:
             return {
-                "pathology": 0,
-                "study_uid": "",
-                "series_uid": "",
-                "path_to_study": src_path.name,
-                "processing_status": f"Failure: {str(e)}",
-                "time_of_processing": round(time.time() - t0, 4),
-                "probability_of_pathology": 0.0,
+                "db_row": {
+                    "pathology": 0,
+                    "study_uid": "",
+                    "series_uid": "",
+                    "path_to_study": src_path.name,
+                    "processing_status": f"Failure: {str(e)}",
+                    "time_of_processing": round(time.time() - t0, 4),
+                    "probability_of_pathology": 0.0,
+                },
+                "explain_heatmap_b64": None,
+                "explain_mask_b64": None,
             }
 
     # ------------------------ внутренние методы ------------------------

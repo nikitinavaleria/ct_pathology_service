@@ -176,9 +176,10 @@ def create_router(db, model):
             path = tmpdir_path / Path(file_name).name
             path.write_bytes(file_bytes)
 
-            report_row = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))
+            result = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))
 
         # сохраняем как раньше (но rows всегда длиной 1)
+        report_row = result["db_row"]
         rows = [report_row]
         xlsx_bytes = _build_xlsx(rows)
 
@@ -198,6 +199,8 @@ def create_router(db, model):
             "ok": True,
             "files_processed": 1,
             "has_pathology_any": has_pathology_any,
+            "explain_heatmap_b64": result.get("explain_heatmap_b64"),
+            "explain_mask_b64": result.get("explain_mask_b64"),
         }
 
     @router.get("/{id}/report")

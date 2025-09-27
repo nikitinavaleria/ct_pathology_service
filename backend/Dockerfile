@@ -7,6 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# + git для зависимостей из репо, + libgl1 для cv2, + libglib2.0-0 для загрузчиков
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git libgl1 libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
 # Ставим зависимости
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip && pip install -r requirements.txt
