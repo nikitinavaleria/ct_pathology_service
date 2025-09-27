@@ -1,5 +1,7 @@
 Запуск базы:
+docker compose build --no-cache
 docker compose --env-file .env up -d
+docker compose up -d
 
 
 Удаление 
