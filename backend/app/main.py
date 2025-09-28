@@ -27,11 +27,19 @@ conn_info = {
 
 db = DB_Connector(conn_info)
 
+# model = PathologyModel(
+#     model_path=MODELS_DIR / "pathology_classifier_v1.pth",
+#     threshold_path=MODELS_DIR / "pathology_threshold_f1.pkl",
+#     device="cpu"
+# )
+
 model = PathologyModel(
-    model_path=MODELS_DIR / "pathology_classifier.pth",
+    model_path=MODELS_DIR / "resnet_classifier_v2.pth",
     threshold_path=MODELS_DIR / "pathology_threshold_f1.pkl",
     device="cpu"
 )
+
+
 @app.get("/")
 def root():
     return {"ok": True, "docs": f"{API_PREFIX}/docs"}
