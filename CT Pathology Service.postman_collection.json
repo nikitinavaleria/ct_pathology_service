@@ -1,0 +1,531 @@
+{
+	"info": {
+		"_postman_id": "45709bd0-7ccd-48fb-b824-b853b1ebec22",
+		"name": "CT Pathology Service",
+		"description": "Updated collection: 1 ZIP = 1 scan; analyze -> summary.has_pathology_any; report -> rows + summary.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "35314939"
+	},
+	"item": [
+		{
+			"name": "Patients",
+			"item": [
+				{
+					"name": "List patients",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/patients",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"patients"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create patient",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"201 Created\", ()=>pm.response.to.have.status(201));",
+									"const j=pm.response.json(); pm.expect(j.id).to.be.a(\"string\");",
+									"pm.collectionVariables.set(\"patientId\", j.id);",
+									"console.log(\"patientId ->\", j.id);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"Ivan\",\n  \"last_name\": \"Ivanov\",\n  \"description\": \"from Postman\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/patients",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"patients"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get patient by id",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200 OK\", ()=>pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/patients/{{patientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"patients",
+								"{{patientId}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update patient",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200 OK\", ()=>pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"description\": \"updated via Postman\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/patients/{{patientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"patients",
+								"{{patientId}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete patient",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"204 No Content\", ()=>pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/patients/{{patientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"patients",
+								"{{patientId}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Scans",
+			"item": [
+				{
+					"name": "List scans (all)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List scans by patient_id",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans?patient_id={{patientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans"
+							],
+							"query": [
+								{
+									"key": "patient_id",
+									"value": "{{patientId}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create scan (upload ZIP)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"201 Created\", ()=>pm.response.to.have.status(201));",
+									"const j=pm.response.json(); pm.expect(j.id).to.be.a(\"string\");",
+									"pm.collectionVariables.set(\"scanId\", j.id);",
+									"console.log(\"scanId ->\", j.id);"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "patient_id",
+									"value": "{{patientId}}",
+									"type": "text"
+								},
+								{
+									"key": "description",
+									"value": "test ZIP upload",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "/Users/leranikitina/Desktop/лцт/Датасет/norma_anon.zip"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get scan by id",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200 OK\", ()=>pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans/{{scanId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans",
+								"{{scanId}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Download scan ZIP",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans/{{scanId}}/file",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans",
+								"{{scanId}}",
+								"file"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update scan (description)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200 OK\", ()=>pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"description\": \"updated description\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans/{{scanId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans",
+								"{{scanId}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Analyze scan (ZIP)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200 OK\", ()=>pm.response.to.have.status(200));",
+									"const j=pm.response.json();",
+									"pm.expect(j.ok).to.eql(true);",
+									"pm.expect(j).to.have.property(\"has_pathology_any\");",
+									"pm.collectionVariables.set(\"hasPathologyAny\", String(j.has_pathology_any));",
+									"console.log(\"hasPathologyAny ->\", j.has_pathology_any);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans/{{scanId}}/analyze",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans",
+								"{{scanId}}",
+								"analyze"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get scan report (rows + summary)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200 OK\", ()=>pm.response.to.have.status(200));",
+									"const j=pm.response.json();",
+									"pm.expect(j).to.have.property(\"rows\");",
+									"pm.expect(j.rows).to.be.an(\"array\");",
+									"pm.expect(j).to.have.property(\"summary\");",
+									"pm.expect(j.summary).to.have.property(\"has_pathology_any\");"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans/{{scanId}}/report",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans",
+								"{{scanId}}",
+								"report"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete scan",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"204 No Content\", ()=>pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/{{apiPrefix}}/scans/{{scanId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"{{apiPrefix}}",
+								"scans",
+								"{{scanId}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Predict",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": "/Users/leranikitina/Desktop/лцт/Датасет/norma_anon/10000E6C_anon"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{baseUrl}}/inference/predict",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"inference",
+						"predict"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8000"
+		},
+		{
+			"key": "apiPrefix",
+			"value": "/api"
+		},
+		{
+			"key": "patientId",
+			"value": ""
+		},
+		{
+			"key": "scanId",
+			"value": ""
+		},
+		{
+			"key": "hasPathologyAny",
+			"value": ""
+		}
+	]
+}

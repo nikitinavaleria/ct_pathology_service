@@ -1,14 +1,3 @@
-Запуск базы:
-docker compose build --no-cache
-docker compose --env-file .env up -d
-docker compose up -d
-
-
-Удаление 
-docker compose down -v
-
-
-
 Patients
 GET /api/patients - Список записей пациентов
 GET /api/patients/{id} - Получение записи пациента
@@ -18,10 +7,14 @@ DELETE /api/patients/{id} - Удаление записи пациента
 
 Scans
 GET /api/scans — Список исследований
-GET /api/scans/{id} — Получение исследования
-GET /api/scans/{id}/file — Скачать исходный ZIP (бинарник)
-POST /api/scans — Создание исследования (загрузка ZIP)
+GET /api/scans/?patient_id={patientId} - Получение списка сканов пациента
+POST /api/scans — Создание исследования (загрузка файла)
+GET /api/scans/{id} — Получение информации об исследовании
+GET /api/scans/{id}/file — Скачать исходный бинарник
 PUT /api/scans/{id} — Редактирование исследования (description)
+POST /api/scans/{id}/analyze — Запустить анализ исследования и получить картинку со снимком, который больше всего повлиял на решение модели
+GET /api/scans/{id}/report — Получить JSON-отчёт об исследовании после анализа
 DELETE /api/scans/{id} — Удаление исследования
-POST /api/scans/{id}/analyze — Запустить анализ исследования; сохраняет report_json (массив строк по DICOM) и report_xlsx
-GET /api/scans/{id}/report — Получить JSON-отчёт: { rows, summary.has_pathology_any }
+
+Inference
+POST /inference/predict - Получение отчета по исследованию без привязки к пациенту (для массового прогона данных)
