@@ -1,8 +1,7 @@
 import axios from "axios";
 
-// 🔹 без baseURL на полный localhost
 const api = axios.create({
-  baseURL: "/api/", // CRA прокинет на http://localhost:8000/api/v1
+  baseURL: "/api/",
   headers: {
     "Content-Type": "application/json",
   },
@@ -33,14 +32,5 @@ export const downloadScanFile = (id) =>
 
 export const analyzeScan = (id) => api.post(`/scans/${id}/analyze`);
 export const getScanReport = (id) => api.get(`/scans/${id}/report`);
-
-// BULK
-export const uploadBulk = (formData) =>
-  api.post(`/bulk-runs`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
-
-export const downloadBulkReport = (id) =>
-  api.get(`/bulk-runs/${id}/report.xlsx`, { responseType: "blob" });
 
 export default api;

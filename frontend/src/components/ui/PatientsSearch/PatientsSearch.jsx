@@ -1,25 +1,18 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import cl from "./PatientsSearch.module.scss";
 
-const PatientsSearch = ({ onSelect }) => {
-  const [query, setQuery] = useState("");
+const PatientsSearch = ({
+  value, // для фильтрации на Dashboard
+  onChange, // для фильтрации на Dashboard
+  onSelect, // для выбора пациента на AddScanPage
+  patients, // массив пациентов
+}) => {
   const [results, setResults] = useState([]);
-  const [allPatients, setAllPatients] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [internalQuery, setInternalQuery] = useState("");
 
-  useEffect(() => {
-    const fetchAllPatients = async () => {
-      try {
-        const response = await axios.get("/api/patients");
-        setAllPatients(response.data.items || []);
-        console.log("Полученные пациенты:", response.data.items);
-      } catch (err) {
-        console.error("Ошибка получения пациентов:", err);
-      }
-    };
-    fetchAllPatients();
-  }, []);
+  const query = value !== undefined ? value : internalQuery;
+  const setQuery = onChange ? onChange : setInternalQuery;
 
   useEffect(() => {
     if (!query) {
@@ -28,20 +21,19 @@ const PatientsSearch = ({ onSelect }) => {
       return;
     }
 
-    const filtered = allPatients.filter((p) =>
+    const filtered = (patients || []).filter((p) =>
       `${p.first_name} ${p.last_name}`
         .toLowerCase()
-        .includes(query.toLowerCase())
+        .startsWith(query.toLowerCase())
     );
+
     setResults(filtered);
     setIsOpen(filtered.length > 0);
-  }, [query, allPatients]);
+  }, [query, patients]);
 
   const handleSelect = (patient) => {
-    setQuery(`${patient.first_name} ${patient.last_name}`);
+    if (onSelect) onSelect(patient); // только для selectable mode
     setIsOpen(false);
-    setResults([]);
-    if (onSelect) onSelect(patient);
   };
 
   return (

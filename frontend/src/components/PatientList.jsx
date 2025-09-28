@@ -1,50 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
 import PatientCard from "./PatientCard";
-import { getPatients } from "../api/api";
 
-const PatientList = ({ className }) => {
+const PatientList = ({ className, patients }) => {
   const navigate = useNavigate();
-  const [patients, setPatients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  const openPatientPage = (id) => {
-    navigate(`/patient/${id}`);
-  };
+  const openPatientPage = (id) => navigate(`/patient/${id}`);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchPatientsList = async () => {
-      try {
-        const response = await getPatients();
-        const items = response.data.items ?? [];
-        console.log("Полученные пациенты:", items);
-
-        if (isMounted) {
-          setPatients(items);
-          setLoading(false);
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError(
-            "Ошибка при загрузке списка пациентов. Пожалуйста, попробуйте позже."
-          );
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchPatientsList();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  if (loading) return <p>Загрузка пациентов...</p>;
-  if (error) return <p style={{ color: "red" }}>{error}</p>;
+  if (!patients) return <p>Загрузка пациентов...</p>;
   if (patients.length === 0) return <p>Пациенты не найдены.</p>;
 
   return (
@@ -59,7 +22,7 @@ const PatientList = ({ className }) => {
             description={patient.description}
             createdAt={patient.created_at}
             updatedAt={patient.updated_at}
-            openPatientPage={() => openPatientPage(patient.id)}
+            // openPatientPage={() => openPatientPage(patient.id)}
           />
         ))}
       </div>

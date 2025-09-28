@@ -1,26 +1,42 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
-import clsx from "clsx";
 
 import PatientsSearch from "../components/ui/PatientsSearch/PatientsSearch";
 import MyButton from "../components/ui/MyButton/MyButton";
 import Dropzone from "../components/ui/Dropzone/Dropzone";
 import Footer from "../components/Footer";
 import PatientCard from "../components/PatientCard";
-import { createPatient, getPatient } from "../api/api";
+import PatientForm from "../components/ui/form/PatientForm";
+import { createPatient, getPatient, getPatients } from "../api/api";
 
 const AddScanPage = () => {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [patient, setPatient] = useState(null);
+  const [report, setReport] = useState(null);
+  const [patientsList, setPatientsList] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
 
-  const openPatientPage = (id) => {
-    navigate(`/patient/${id}`);
-  };
+  const openPatientPage = (id) => navigate(`/patient/${id}`);
+
+  // Получаем всех пациентов для поиска
+  useEffect(() => {
+    const fetchPatients = async () => {
+      try {
+        const response = await getPatients();
+        const fetchedPatients = response.data.items ?? [];
+        setPatientsList(fetchedPatients.reverse()); // самые новые сверху
+      } catch (err) {
+        console.error("Ошибка при загрузке пациентов:", err);
+      }
+    };
+    fetchPatients();
+  }, []);
 
   const handlePatientSelect = (selectedPatient) => {
     setPatient(selectedPatient);
     setIsFormVisible(false);
+    setReport(null);
   };
 
   const handleSubmit = async (e) => {
@@ -33,12 +49,19 @@ const AddScanPage = () => {
         last_name: form.surname.value,
         description: form.description.value,
       });
-      const patientData = await getPatient(response.data.id);
-      setPatient(patientData.data);
+      const newPatientData = await getPatient(response.data.id);
+      setPatient(newPatientData.data);
+      setPatientsList((prev) => [newPatientData.data, ...prev]);
       setIsFormVisible(false);
+      setReport(null);
     } catch (err) {
       console.error("Ошибка при создании пациента:", err);
     }
+  };
+
+  const handleScanAnalyzed = (scanReport) => {
+    setReport(scanReport);
+    console.log("Результат анализа:", scanReport);
   };
 
   return (
@@ -46,7 +69,12 @@ const AddScanPage = () => {
       <header className="page__header">
         <h1 className="page__title">Добавить исследование</h1>
 
-        <PatientsSearch onSelect={handlePatientSelect} />
+        <PatientsSearch
+          value={searchQuery}
+          onChange={setSearchQuery}
+          patients={patientsList}
+          onSelect={handlePatientSelect}
+        />
 
         {!patient && (
           <MyButton
@@ -59,43 +87,12 @@ const AddScanPage = () => {
 
       <main className="page__body">
         {isFormVisible && (
-          <form
-            onSubmit={handleSubmit}
-            className={clsx(
-              "add-scan-page__form",
-              isFormVisible && "add-scan-page__form--active"
-            )}>
-            <h3>Добавить нового пациента</h3>
-
-            <label htmlFor="name">Имя пациента:</label>
-            <input
-              type="text"
-              id="name"
-              name="name"
-              placeholder="Имя пациента"
-            />
-
-            <label htmlFor="surname">Фамилия пациента:</label>
-            <input
-              type="text"
-              id="surname"
-              name="surname"
-              placeholder="Фамилия пациента"
-            />
-
-            <label htmlFor="description">Описание:</label>
-            <input
-              type="text"
-              id="description"
-              name="description"
-              placeholder="Описание"
-            />
-
-            <MyButton type="submit">Добавить</MyButton>
-          </form>
+          <PatientForm
+            isFormVisible={isFormVisible}
+            handleSubmit={handleSubmit}
+          />
         )}
 
-        {/* Карточка выбранного пациента */}
         {patient && (
           <PatientCard
             key={patient.id}
@@ -108,16 +105,59 @@ const AddScanPage = () => {
           />
         )}
 
-        {/* Название исследования */}
-        <input type="text" placeholder="Название исследования" />
+        {report && (
+          <div className="patient-report">
+            <h3>Отчёт по исследованию</h3>
+            <p>
+              Потенциальная патология:{" "}
+              {report.summary?.has_pathology_any
+                ? "Обнаружена"
+                : "Не обнаружена"}
+            </p>
 
-        {/* Dropzone доступен только если пациент выбран */}
-        <Dropzone patientId={patient ? patient.id : null} description={""} />
+            <ul className="patient-report__list">
+              {report.rows?.map((row, index) => (
+                <li key={index} className="patient-report__item">
+                  <div className="patient-report__probability">
+                    <strong>Вероятность патологии:</strong>{" "}
+                    <span
+                      className={
+                        row.probability_of_pathology > 0.5
+                          ? "high-probability"
+                          : "low-probability"
+                      }>
+                      {(row.probability_of_pathology * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
 
-        <p>
-          Поддерживаемые форматы: DICOM, NIfTI (.nii, .nii.gz), PNG, JPG, архивы
-          (ZIP, TAR), а также файлы без расширений
-        </p>
+            {report?.explain_heatmap_b64 && (
+              <div>
+                <img
+                  src={`data:image/png;base64,${report.explain_heatmap_b64}`}
+                  alt="Heatmap"
+                  style={{
+                    maxWidth: "400px",
+                    display: "block",
+                    marginTop: "10px",
+                  }}
+                />
+                <h4>
+                  Тепловая карта среза с подсветкой областей, которые наиболее
+                  сильно повлияли на решение модели
+                </h4>
+              </div>
+            )}
+          </div>
+        )}
+
+        <Dropzone
+          patientId={patient ? patient.id : null}
+          description=""
+          onScanAnalyzed={handleScanAnalyzed}
+        />
       </main>
 
       <Footer />
