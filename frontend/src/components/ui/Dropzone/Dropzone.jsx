@@ -2,25 +2,27 @@ import React, { useState, useRef } from "react";
 import cl from "./Dropzone.module.scss";
 import MyButton from "../MyButton/MyButton";
 import axios from "axios";
+import { getScanReport } from "../../../api/api";
 
-const Dropzone = ({ patientId, description }) => {
-  const [files, setFiles] = useState([]);
-  const [isDragOver, setIsDragOver] = useState(false);
+const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
+  const [file, setFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  const handleFiles = (newFiles) => {
-    if (!newFiles) return;
-    const arr = Array.from(newFiles);
-    console.log("Выбраны файлы:", arr);
-    setFiles(arr);
+  const handleFile = (newFile) => {
+    if (!newFile) return;
+    setFile(newFile[0]);
+    setUploadProgress(0);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    handleFiles(e.dataTransfer.files);
+    handleFile(e.dataTransfer.files);
   };
 
   const handleDragOver = (e) => {
@@ -31,13 +33,8 @@ const Dropzone = ({ patientId, description }) => {
 
   const handleDragLeave = () => setIsDragOver(false);
 
-  const uploadAndAnalyze = async (file) => {
-    if (!patientId) {
-      console.warn("Нет patientId! Не могу загрузить файл.");
-      return;
-    }
-
-    console.log("Начинаю загрузку файла:", file.name);
+  const uploadAndAnalyze = async () => {
+    if (!patientId || !file) return;
 
     const formData = new FormData();
     formData.append("file", file);
@@ -45,71 +42,93 @@ const Dropzone = ({ patientId, description }) => {
     formData.append("description", description || "");
 
     try {
-      // Загрузка
       const response = await axios.post("/api/scans", formData, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (e) => {
           const percent = Math.round((e.loaded * 100) / e.total);
           setUploadProgress(percent);
-          console.log(`Загрузка ${file.name}: ${percent}%`);
+          setIsUploading(true);
         },
       });
-
-      console.log("Файл загружен, ответ сервера:", response.data);
-
+      setIsAnalyzing(true);
+      setIsUploading(false);
       const scanId = response.data.id;
-      console.log("Запускаю анализ файла с id:", scanId);
 
-      // Анализ после загрузки
       const analyzeResponse = await axios.post(`/api/scans/${scanId}/analyze`);
-      console.log("Анализ завершён, ответ сервера:", analyzeResponse.data);
+      const reportFromAnalyze = analyzeResponse.data;
 
-      setUploadProgress(100);
+      const reportFromReport = await getScanReport(scanId);
+
+      const fullReport = {
+        ...reportFromReport,
+        explain_heatmap_b64: reportFromAnalyze.explain_heatmap_b64,
+        explain_mask_b64: reportFromAnalyze.explain_mask_b64,
+      };
+
+      if (onScanAnalyzed) {
+        onScanAnalyzed({
+          ...fullReport.data,
+          explain_heatmap_b64: analyzeResponse.data.explain_heatmap_b64,
+        });
+      }
+
+      console.log(analyzeResponse);
     } catch (err) {
       console.error("Ошибка при загрузке или анализе:", err);
+    } finally {
+      setUploadProgress(100);
+      setIsAnalyzing(false);
       setUploadProgress(0);
     }
   };
 
   return (
-    <div>
+    <div className={cl.dropzoneContainer}>
       <div
         className={`${cl.dropzone} ${isDragOver ? cl.dragover : ""}`}
         onClick={() => fileInputRef.current.click()}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}>
-        Перетащите файлы сюда или нажмите
+        {file ? file.name : "Перетащите файл сюда или нажмите"}
       </div>
+
+      <p className={cl.dropzoneDescription}>
+        Поддерживаемые форматы: DICOM, NIfTI (.nii, .nii.gz), PNG, JPG, архивы
+        (ZIP, TAR), а также файлы без расширений
+      </p>
 
       <input
         type="file"
-        multiple
         ref={fileInputRef}
         style={{ display: "none" }}
-        onChange={(e) => handleFiles(e.target.files)}
+        onChange={(e) => handleFile(e.target.files)}
       />
 
-      <ul className={cl.fileList}>
-        {files.map((file, i) => (
-          <li key={i}>
-            {file.name} ({Math.round(file.size / 1024)} КБ)
-            <MyButton
-              onClick={() => uploadAndAnalyze(file)}
-              disabled={!patientId}>
-              {patientId ? "Загрузить и анализировать" : "Выберите пациента"}
-            </MyButton>
-          </li>
-        ))}
-      </ul>
-
-      {uploadProgress > 0 && (
+      {uploadProgress > 0 && !isAnalyzing && uploadProgress < 100 && (
         <div className={cl.progressBar}>
           <div
             className={cl.progress}
             style={{ width: `${uploadProgress}%` }}></div>
         </div>
       )}
+
+      {isAnalyzing && (
+        <div className={cl.spinnerWrapper}>
+          <div className={cl.spinner}></div>
+          <span>Файл анализируется...</span>
+        </div>
+      )}
+
+      {isUploading && (
+        <div className="uploading-message">
+          <span>Пожалуйста, подождите, ваш файл загружается в модель</span>
+        </div>
+      )}
+
+      <MyButton onClick={uploadAndAnalyze} disabled={!patientId || !file}>
+        {patientId ? "Загрузить и анализировать" : "Выберите пациента"}
+      </MyButton>
     </div>
   );
 };
