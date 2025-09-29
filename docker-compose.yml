@@ -26,8 +26,8 @@ services:
 
   api:
     build:
-      context: . # корень репо
-      dockerfile: backend/Dockerfile # <-- используем наш Dockerfile в backend/
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: ctpathology-api
     restart: unless-stopped
     environment:
@@ -45,19 +45,20 @@ services:
     ports:
       - "${API_PORT}:8000"
     networks: [backend]
+
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: "http://localhost:${API_PORT}/api"
-    container_name: ctpathology-frontend
-    restart: unless-stopped
+    environment:
+      API_PREFIX: "/api"
+      API_HOST: "ctpathology-api"    # имя контейнера бэка
+      API_PORT: "8000"
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - api
-    ports:
-      - "${FRONTEND_PORT:-8378}:80"
-    networks: [ backend ]
+    networks: [backend]              # <— КРИТИЧНО: одна сеть с api
 
 volumes:
   db_data:
