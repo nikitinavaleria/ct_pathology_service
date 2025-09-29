@@ -11,7 +11,6 @@ import tempfile
 from pathlib import Path
 
 
-from backend.app.ml.model_loader import load_pathology_model, load_pathology_threshold
 from backend.app.schemas.schemas import ListResponse, ScanOut, ScanUpdate
 
 def create_router(db, model):

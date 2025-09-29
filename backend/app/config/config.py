@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from environs import Env
-from pathlib import Path
-from pydantic import HttpUrl
+import torch
 
 @dataclass
 class DatabaseConfig:
@@ -12,8 +11,19 @@ class DatabaseConfig:
     password: str
 
 @dataclass
+class ModelConfig:
+    img_size: int
+    backbone_out_dim: int
+    num_frames: int
+    step: int
+    device: str
+    min_frames_selected: int
+    threshold_frames: int
+
+@dataclass
 class Config:
     db: DatabaseConfig
+    ml: ModelConfig
 
 def load_config(path: str | None = None) -> Config:
 
@@ -27,45 +37,14 @@ def load_config(path: str | None = None) -> Config:
             port=env('DB_PORT'),
             user=env('DB_USER'),
             password=env('DB_PASSWORD')
+        ),
+        ml=ModelConfig(
+            img_size=512,
+            backbone_out_dim=512,
+            num_frames=32,
+            step=1,
+            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            min_frames_selected=64,
+            threshold_frames=10
         )
     )
-
-
-
-
-
-
-
-# @dataclass
-# class ModelConfig:
-#     model_path: Path
-#     scaler_path: Path
-#
-# @dataclass
-# class Config:
-#     db: DatabaseConfig
-#     model: ModelConfig
-
-# def load_config(path: str | None = None) -> Config:
-#
-#     env: Env = Env()
-#     env.read_env(path)
-#
-#     base_dir = Path(__file__).resolve().parent.parent.parent
-#     models_dir = base_dir / "models"
-#
-#     return Config(
-#         model= ModelConfig(
-#             model_path=models_dir / "model.pkl",
-#             scaler_path=models_dir / "scaler.pkl",
-#             ),
-#         db=DatabaseConfig(
-#             name=env('DB_NAME'),
-#             host=env('DB_HOST'),
-#             port=env('DB_PORT'),
-#             user=env('DB_USER'),
-#             password=env('DB_PASSWORD'),
-#             table_name='antifraud.sso_stats'
-#         ),
-#         api=ServiceConfig(url=env('EXTERNAL_API'))
-#     )

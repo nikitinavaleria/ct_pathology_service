@@ -1,0 +1,6 @@
+{
+    "backbone_type": "ResNet",
+    "backbone_out_dim": 512,
+    "img_size": 512,
+    "freeze_encoder": true
+}

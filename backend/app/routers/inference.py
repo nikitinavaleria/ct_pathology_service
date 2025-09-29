@@ -19,17 +19,16 @@ def create_inference_router(model):
                 tmpdir_path = Path(tmpdir)
                 path = tmpdir_path / filename
                 path.write_bytes(file_bytes)
-                # до сюда не дошел
-                print('hi3')
-                report = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))
+                report = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))['db_row']
+                print(report)
             elapsed = time.perf_counter() - start
             return {
                 "pathology": int(report.get("pathology", 0)),
                 "study_uid": report.get("study_uid", ""),
                 "series_uid": report.get("series_uid", ""),
-                "processing_status": "Success",
+                "processing_status": report.get("processing_status", ""),
                 "time_of_processing": elapsed,
-                "probability_of_pathology": float(report.get("probability_of_pathology", 0.0)),
+                "probability_of_pathology": float(report.get("probability", 0.0)),
             }
 
         except Exception as e:
