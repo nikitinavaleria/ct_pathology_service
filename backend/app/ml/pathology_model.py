@@ -9,9 +9,13 @@ import zipfile
 import time
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
+from collections import defaultdict
 
 import pandas as pd
 import torch
+
+from ultralytics import YOLO
+
 
 # наши «внутренности» — чисто перенесённые из ноутбука
 from backend.app.ml.config import IMG_SIZE, dataset_mean, dataset_std  # type: ignore
@@ -117,6 +121,76 @@ def _load_model_and_thresholds(model_dir: Path, device: torch.device) -> Tuple[t
     thresholds = _load_thresholds(model_dir)
     return bin_model, ae_model, thresholds, img_size
 
+
+# --- YOLO: классификация конкретной патологии (по наборам PNG-срезов) ---
+
+# Русские подписи (из файла коллеги)
+_PATHOLOGY_RU = {
+    "Arterial wall calcification": "Кальцификация стенки артерии / Обызвествление стенки артерии",
+    "Atelectasis": "Ателектаз",
+    "Bronchiectasis": "Бронхоэктаз / Бронхоэктатическая болезнь",
+    "Cardiomegaly": "Кардиомегалия (увеличение сердца)",
+    "Consolidation": "Консолидация / Уплотнение легочной ткани (часто признак пневмонии)",
+    "Coronary artery wall calcification": "Кальцификация стенки коронарной артерии",
+    "Emphysema": "Эмфизема (легких)",
+    "Hiatal hernia": "Грыжа пищеводного отверстия диафрагмы (ГПОД)",
+    "Lung nodule": "Узелок в легком / Легочный узел",
+    "Lung opacity": "Затемнение в легком / Легочное затемнение",
+    "Lymphadenopathy": "Лимфаденопатия (увеличение лимфатических узлов)",
+    "Mosaic attenuation pattern": "Мозаичный рисунок плотности / Мозаичная олигемия",
+    "Peribronchial thickening": "Утолщение перибронхиальных стенок",
+    "Pericardial effusion": "Перикардиальный выпот (жидкость в полости перикарда)",
+    "Pleural effusion": "Плевральный выпот (жидкость в плевральной полости)",
+    "Pulmonary fibrotic sequela": "Фиброзные последствия в легких / Постфибротические изменения в легких",
+    "CT_LUNGCANCER_500": "Признаки рака легкого тип VIII",
+    "LDCT-LUNGCR-type-I": "Признаки рака легкого тип I",
+    "COVID19_1110 CT-1": "Признаки поражения паренхимы легкого при COVID-19",
+    "COVID19_1110 CT-2": "Признаки поражения паренхимы легкого при COVID-19",
+    "COVID19-type I": "Признаки поражения паренхимы легкого при COVID-19",
+}
+
+def _classify_pathology_with_yolo(image_paths: list[str], models_root: Path, imgsz: int = 512, conf: float = 0.5):
+    """
+    Возвращает словарь с победившим классом и сводной статистикой.
+    Если что-то пошло не так — возвращает {"error": "..."}.
+    """
+    weights = Path(__file__).resolve().parents[2] / "models/mnogoclass.pt"
+    if not weights.exists():
+        return {"error": f"YOLO weights not found at {weights}"}
+
+    # YOLO умеет принимать список файлов
+    try:
+        model = YOLO(str(weights))
+        # device: пусть выбирает сам (GPU если есть)
+        results = model.predict(source=image_paths, imgsz=imgsz, conf=conf)
+    except Exception as e:
+        return {"error": f'yolo inference failed: {e}'}
+
+    class_stats = defaultdict(list)
+    per_image = []
+
+    for i, res in enumerate(results):
+        probs = getattr(res, "probs", None)
+        if probs is None:
+            continue
+        top1_idx = int(probs.top1)
+        top1_prob = float(probs.top1conf.item())
+        top1_class = res.names[top1_idx]
+        per_image.append({"index": i, "class": top1_class, "probability": top1_prob})
+        class_stats[top1_class].append(top1_prob)
+
+    if not class_stats:
+        return {"winner": None, "summary": [], "per_image": per_image}
+
+    summary = [
+        {"class": cls, "count": len(vals), "avg_probability": float(sum(vals) / len(vals))}
+        for cls, vals in class_stats.items()
+    ]
+    summary.sort(key=lambda x: (x["count"], x["avg_probability"]), reverse=True)
+    winner = summary[0]
+    winner["class_ru"] = _PATHOLOGY_RU.get(winner["class"])
+    return {"winner": winner, "summary": summary, "per_image": per_image}
+
 # -------------------------
 # ПУБЛИЧНЫЙ API
 # -------------------------
@@ -196,7 +270,8 @@ def analyze(file_path: str, temp_dir: str, model_dir: Optional[str] = None) -> d
         else:
             study_uid, series_uid = keys, None
 
-        # ВАЖНО: сигнатура и порядок аргументов — как в ноутбуке
+        image_list = group["path_image"].tolist() if "path_image" in group.columns else []
+
         pred, max_prob, saved_mask_rel = predict_patient_with_gradcam(
             group,
             binary_classifier,
@@ -216,6 +291,22 @@ def analyze(file_path: str, temp_dir: str, model_dir: Optional[str] = None) -> d
             "mask_path": saved_mask_rel,  # путь ОТНОСИТЕЛЬНО masks_root
             "pathology": int(pred),  # бинарное решение из функции (как в ноуте)
         }
+
+        if row["pathology"] == 1 and image_list:
+            yolo_conf = float(0.5)  # можно настраивать порог через thresholds.json
+            yolo_res = _classify_pathology_with_yolo(image_list, models_root=models_root, imgsz=img_size,
+                                                     conf=yolo_conf)
+            # сохраняем краткий вывод + полезную сводку в report_row (чтобы попали в report_json/xlsx)
+            if yolo_res.get("error"):
+                row["pathology_cls_error"] = yolo_res["error"]
+            else:
+                winner = yolo_res.get("winner")
+                if winner:
+                    row["pathology_cls"] = winner["class"]
+                    row["pathology_cls_ru"] = winner.get("class_ru")
+                    row["pathology_cls_count"] = winner["count"]
+                    row["pathology_cls_avg_prob"] = winner["avg_probability"]
+
         rows.append(row)
 
     if not rows:

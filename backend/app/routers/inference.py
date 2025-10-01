@@ -29,7 +29,8 @@ def create_inference_router():
                 "series_uid": report.get("series_uid", ""),
                 "processing_status": report.get("processing_status", ""),
                 "time_of_processing": elapsed,
-                "probability_of_pathology": float(report.get("probability", 0.0)),
+                "probability_of_pathology": float(report.get("prob_pathology", 0.0)),
+                "most_dangerous_pathology_type": report.get("pathology_cls_ru", "")
             }
 
         except Exception as e:
@@ -41,6 +42,7 @@ def create_inference_router():
                 "processing_status": "Failure",
                 "time_of_processing": elapsed,
                 "probability_of_pathology": 0.0,
+                "most_dangerous_pathology_type": ""
             }
 
     return router
