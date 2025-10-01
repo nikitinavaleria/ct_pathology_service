@@ -121,7 +121,6 @@ const AddScanPage = () => {
 
             <ul className="patient-report__list">
               {report.rows?.map((row, index) => (
-
                 <li key={index} className="patient-report__item">
                   <div className="patient-report__probability">
                     <strong>Вероятность патологии:</strong>{" "}
@@ -131,6 +130,7 @@ const AddScanPage = () => {
                           ? "high-probability"
                           : "low-probability"
                       }>
+                      {row.probability_of_pathology}
                     </span>
                   </div>
                 </li>
