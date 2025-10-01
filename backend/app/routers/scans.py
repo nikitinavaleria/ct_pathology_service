@@ -10,11 +10,10 @@ from psycopg.types.json import Json
 import tempfile
 from pathlib import Path
 
-
-from backend.app.ml.model_loader import load_pathology_model, load_pathology_threshold
+from backend.app.ml.pathology_model import analyze as model_analyze
 from backend.app.schemas.schemas import ListResponse, ScanOut, ScanUpdate
 
-def create_router(db, model):
+def create_router(db):
     router = APIRouter(prefix="/scans", tags=["scans"])
 
     # ---------- helpers ----------
@@ -171,12 +170,13 @@ def create_router(db, model):
         file_name: str = row["file_name"]
         file_bytes: bytes = row["file_bytes"]
 
-        with tempfile.TemporaryDirectory(prefix="scan_tmp_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="scan_tmp_", dir="/tmp") as tmpdir:
             tmpdir_path = Path(tmpdir)
             path = tmpdir_path / Path(file_name).name
             path.write_bytes(file_bytes)
 
-            result = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))
+
+            result = model_analyze(file_path=str(path), temp_dir=str(tmpdir_path)) # TODO тут модель
 
         # сохраняем как раньше (но rows всегда длиной 1)
         report_row = result["db_row"]

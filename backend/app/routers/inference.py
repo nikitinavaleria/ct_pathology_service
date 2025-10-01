@@ -3,9 +3,9 @@ import tempfile
 import os
 import time
 from fastapi import APIRouter, File, HTTPException, UploadFile, Form
+from backend.app.ml.pathology_model import analyze as model_analyze
 
-
-def create_inference_router(model):
+def create_inference_router():
 
     router = APIRouter(prefix="/inference", tags=["inference"])
 
@@ -19,17 +19,18 @@ def create_inference_router(model):
                 tmpdir_path = Path(tmpdir)
                 path = tmpdir_path / filename
                 path.write_bytes(file_bytes)
-                # до сюда не дошел
-                print('hi3')
-                report = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))
+                # report = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))['db_row'] # TODO тут модель
+                report = model_analyze(file_path=str(path), temp_dir=str(tmpdir_path))['db_row']
+                print(report)
             elapsed = time.perf_counter() - start
             return {
                 "pathology": int(report.get("pathology", 0)),
                 "study_uid": report.get("study_uid", ""),
                 "series_uid": report.get("series_uid", ""),
-                "processing_status": "Success",
+                "processing_status": report.get("processing_status", ""),
                 "time_of_processing": elapsed,
-                "probability_of_pathology": float(report.get("probability_of_pathology", 0.0)),
+                "probability_of_pathology": float(report.get("prob_pathology", 0.0)),
+                "most_dangerous_pathology_type": report.get("pathology_cls_ru", "")
             }
 
         except Exception as e:
@@ -41,6 +42,7 @@ def create_inference_router(model):
                 "processing_status": "Failure",
                 "time_of_processing": elapsed,
                 "probability_of_pathology": 0.0,
+                "most_dangerous_pathology_type": ""
             }
 
     return router
