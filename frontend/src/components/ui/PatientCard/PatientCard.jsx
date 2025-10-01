@@ -14,10 +14,7 @@ const PatientCard = ({
   onDeletePatient,
 }) => {
   return (
-    <div
-      className={`patient-card ${className}`}
-      // onClick={openPatientPage}
-    >
+    <div className={`patient-card ${className}`}>
       <h2 className="patient-card__name">{name}</h2>
       <div>
         <p className="patient-card__date">
@@ -28,13 +25,20 @@ const PatientCard = ({
         </p>
       </div>
       {description && <p className="patient-card__desc">{description}</p>}
-
       <MyButton
-        onClick={onRemovePatient}
+        onClick={() => openPatientPage()}
         disabled={isUploading || isAnalyzing}
         style={{ background: "#eee", color: "#333" }}>
-        Убрать пациента
+        Открыть карточку пациента
       </MyButton>
+      {onRemovePatient && (
+        <MyButton
+          onClick={onRemovePatient}
+          disabled={isUploading || isAnalyzing}
+          style={{ background: "#eee", color: "#333" }}>
+          Убрать пациента
+        </MyButton>
+      )}
       {onDeletePatient && (
         <MyButton
           onClick={onDeletePatient}

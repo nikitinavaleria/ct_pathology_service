@@ -35,6 +35,7 @@ const PatientList = ({ className, patients }) => {
             updatedAt={patient.updated_at}
             onDeletePatient={() => handleDeletePatient(patient.id)}
             // openPatientPage={() => openPatientPage(patient.id)}
+            openPatientPage={() => openPatientPage(patient.id)}
           />
         ))}
       </div>
