@@ -16,6 +16,9 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
     if (!newFile) return;
     setFile(newFile[0]);
     setUploadProgress(0);
+    if (onScanAnalyzed) {
+      onScanAnalyzed(null);
+    }
   };
 
   const handleDrop = (e) => {
@@ -131,7 +134,7 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
 
       <MyButton
         onClick={uploadAndAnalyze}
-        disabled={!patientId || !file}>
+        disabled={!patientId || !file || isUploading || isAnalyzing}>
         {patientId ? "Загрузить и анализировать" : "Выберите пациента"}
       </MyButton>
     </div>

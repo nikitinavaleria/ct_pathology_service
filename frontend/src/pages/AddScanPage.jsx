@@ -5,7 +5,7 @@ import PatientsSearch from "../components/ui/PatientsSearch/PatientsSearch";
 import MyButton from "../components/ui/MyButton/MyButton";
 import Dropzone from "../components/ui/Dropzone/Dropzone";
 import Footer from "../components/Footer";
-import PatientCard from "../components/PatientCard";
+import PatientCard from "../components/ui/PatientCard/PatientCard";
 import PatientForm from "../components/ui/form/PatientForm";
 import { createPatient, getPatient, getPatients } from "../api/api";
 
@@ -102,6 +102,10 @@ const AddScanPage = () => {
             createdAt={patient.created_at}
             updatedAt={patient.updated_at}
             openPatientPage={() => openPatientPage(patient.id)}
+            onRemovePatient={() => {
+              setPatient(null);
+              setReport(null);
+            }}
           />
         )}
 
@@ -163,6 +167,10 @@ const AddScanPage = () => {
           patientId={patient ? patient.id : null}
           description=""
           onScanAnalyzed={handleScanAnalyzed}
+          onRemovePatient={() => {
+            setPatient(null);
+            setReport(null);
+          }}
         />
       </main>
 
