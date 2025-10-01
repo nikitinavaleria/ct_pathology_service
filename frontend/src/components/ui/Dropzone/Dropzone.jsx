@@ -94,8 +94,10 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
       </div>
 
       <p className={cl.dropzoneDescription}>
-        Поддерживаемые форматы: DICOM, NIfTI (.nii, .nii.gz), PNG, JPG, архивы
-        (ZIP, TAR), а также файлы без расширений
+
+
+        Поддерживаемые форматы: ZIP-архивы с DICOM-сериями (.zip) и одиночные
+        DICOM-файлы (.dcm, допускаются без расширения)
       </p>
 
       <input
@@ -126,7 +128,10 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
         </div>
       )}
 
-      <MyButton onClick={uploadAndAnalyze} disabled={!patientId || !file}>
+
+      <MyButton
+        onClick={uploadAndAnalyze}
+        disabled={!patientId || !file}>
         {patientId ? "Загрузить и анализировать" : "Выберите пациента"}
       </MyButton>
     </div>

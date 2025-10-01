@@ -117,7 +117,11 @@ const AddScanPage = () => {
 
             <ul className="patient-report__list">
               {report.rows?.map((row, index) => (
-                <li key={index} className="patient-report__item">
+
+                <li
+                  key={index}
+                  className="patient-report__item">
+
                   <div className="patient-report__probability">
                     <strong>Вероятность патологии:</strong>{" "}
                     <span
@@ -126,7 +130,9 @@ const AddScanPage = () => {
                           ? "high-probability"
                           : "low-probability"
                       }>
-                      {(row.probability_of_pathology * 100).toFixed(1)}%
+
+                      {row.probability_of_pathology.toFixed(2)}
+
                     </span>
                   </div>
                 </li>
