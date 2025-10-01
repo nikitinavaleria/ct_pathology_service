@@ -1,371 +1,264 @@
-import argparse
-from pathlib import Path
-import pandas as pd
-import json
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torchvision import transforms as T
-from PIL import Image
-from tqdm import tqdm
-from torchvision.models import resnet18
-import pytorch_lightning as pl
 import cv2
 import numpy as np
-from utils import select_central_slices
+from PIL import Image
+from pathlib import Path
+import torch
+import torch.nn.functional as F
+import torchvision.transforms as T
+import os
+from .config import IMG_SIZE, dataset_mean, dataset_std, resize_before_crop
 
-# ====== Вспомогательные функции ======
+# ====== Вспомогательные функции (без изменений) ======
+
+def denormalize(tensor, mean, std):
+    tensor = tensor.clone()
+    for t, m, s in zip(tensor, mean, std):
+        t.mul_(s).add_(m)
+    return tensor.clamp(0, 1)
+
 def lung_mask_from_grayscale(img_tensor, method='fixed', threshold=0.35):
-    if torch.is_tensor(img_tensor):
-        img_np = img_tensor.detach().cpu().numpy()
-    else:
-        img_np = img_tensor
-
-    if img_np.ndim == 3:
-        img_np = img_np.squeeze()
-    if img_np.ndim != 2:
-        raise ValueError(f"Ожидалось 2D изображение, получено: {img_np.shape}")
-
+    img_np = img_tensor.squeeze().cpu().numpy()
     img_01 = (img_np + 1) / 2.0
-    img_01 = np.clip(img_01, 0, 1)
-
-    if method == 'adaptive':
-        threshold = np.median(img_01) - 0.1
-        threshold = max(0.1, min(0.9, threshold))
+    if method == 'otsu':
+        img_uint8 = (img_01 * 255).astype(np.uint8)
+        _, mask = cv2.threshold(img_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        mask = mask.astype(np.float32) / 255.0
     else:
-        pass
-
-    mask = (img_01 < threshold).astype(np.float32)
-
+        mask = (img_01 < threshold).astype(np.float32)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-
-    return mask
+    return torch.from_numpy(mask).to(img_tensor.device)
 
 def masked_reconstruction_error(x, recon, lung_threshold=0.35):
-    errors = []
-    for i in range(x.size(0)):
-        mask_np = lung_mask_from_grayscale(x[i, 0], threshold=lung_threshold)
-        mask = torch.from_numpy(mask_np).to(x.device).float()
-        diff = (x[i] - recon[i]) ** 2
-        masked_diff = diff.squeeze(0) * mask
-        error = masked_diff.sum() / (mask.sum() + 1e-8)
-        errors.append(error.item())
-    return errors
+    mask = lung_mask_from_grayscale(x[0], threshold=lung_threshold)
+    diff = (x[0] - recon[0]) ** 2
+    masked_diff = diff.squeeze() * mask
+    error = masked_diff.sum() / (mask.sum() + 1e-8)
+    return error.item()
 
-# ====== Модели ======
-class BinaryClassifier(pl.LightningModule):
-    def __init__(self, pretrained_backbone, backbone_out_dim, freeze_backbone=False):
-        super().__init__()
-        self.backbone = pretrained_backbone
-        if freeze_backbone:
-            for param in self.backbone.parameters():
-                param.requires_grad = False
-        self.classifier = nn.Sequential(
-            nn.Linear(backbone_out_dim, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 1)
-        )
-        self.criterion = nn.BCEWithLogitsLoss()
-
-    def forward(self, x):
-        features = self.backbone(x)
-        if features.dim() == 4:
-            features = features.flatten(1)
-        logits = self.classifier(features).squeeze(-1)
-        return logits
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self.forward(x)
-        loss = self.criterion(logits, y)
-        preds = torch.sigmoid(logits) > 0.5
-        acc = (preds == y).float().mean()
-        self.log_dict({"train_loss": loss, "train_acc": acc}, prog_bar=True, batch_size=x.size(0))
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self.forward(x)
-        loss = self.criterion(logits, y)
-        preds = torch.sigmoid(logits) > 0.5
-        acc = (preds == y).float().mean()
-        self.log_dict({"val_loss": loss, "val_acc": acc}, prog_bar=True, batch_size=x.size(0))
-
-    def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=1e-4)
-
-class NormAutoencoder(pl.LightningModule):
-    def __init__(self, pretrained_backbone, img_size=512):
-        super().__init__()
-        self.encoder = pretrained_backbone
-        self.decoder = self._build_decoder(img_size)
-        self.freeze_encoder = True
-        if self.freeze_encoder:
-            for param in self.encoder.parameters():
-                param.requires_grad = False
-
-    def _build_decoder(self, img_size):
-        layers = [
-            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 8, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(8, 4, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(4, 2, kernel_size=4, stride=2, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(2, 1, kernel_size=4, stride=2, padding=1),
-            nn.Tanh()
-        ]
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        z = self.encoder(x)
-        recon = self.decoder(z)
-        return recon
-
-    def training_step(self, batch, batch_idx):
-        x, _ = batch
-        recon = self.forward(x)
-        loss = nn.functional.mse_loss(recon, x)
-        self.log("recon_loss", loss, prog_bar=True, batch_size=x.size(0))
-        return loss
-
-    def configure_optimizers(self):
-        params = self.decoder.parameters() if self.freeze_encoder else self.parameters()
-        return torch.optim.AdamW(params, lr=1e-3, weight_decay=1e-4)
-
-def create_resnet_backbone():
-    model = resnet18(weights=None)
-    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    backbone = nn.Sequential(*list(model.children())[:-1])
-    return backbone
-
-# ====== Функция наложения Grad-CAM ======
-def overlay_cam_on_image(heatmap, image, image_weight=0.5):
-    h_img, w_img = image.shape[:2]
+def overlay_cam_on_original_image(heatmap, original_img, cropped_size, resized_size, image_weight=0.5):
+    if original_img.shape[2] != 3:
+        raise ValueError("Оригинальное изображение должно быть в формате RGB (H, W, 3)")
+    h_orig, w_orig = original_img.shape[:2]
+    scale = resized_size / max(h_orig, w_orig)
+    resized_h = int(h_orig * scale)
+    resized_w = int(w_orig * scale)
+    top = (resized_h - cropped_size) // 2
+    left = (resized_w - cropped_size) // 2
+    bottom = top + cropped_size
+    right = left + cropped_size
+    top_orig = int(top / scale)
+    left_orig = int(left / scale)
+    bottom_orig = int(bottom / scale)
+    right_orig = int(right / scale)
     if heatmap.max() > heatmap.min():
         heatmap_scaled = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
     else:
         heatmap_scaled = np.zeros_like(heatmap)
-    heatmap_resized = cv2.resize(heatmap_scaled, (w_img, h_img))
-    heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
+    heatmap_resized = cv2.resize(heatmap_scaled, (cropped_size, cropped_size))
+    full_heatmap = np.zeros((h_orig, w_orig), dtype=np.float32)
+    h_crop = bottom_orig - top_orig
+    w_crop = right_orig - left_orig
+    heatmap_scaled = cv2.resize(heatmap_resized, (w_crop, h_crop))
+    full_heatmap[top_orig:bottom_orig, left_orig:right_orig] = heatmap_scaled
+    heatmap_colored = cv2.applyColorMap(np.uint8(255 * full_heatmap), cv2.COLORMAP_JET)
     heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    cam = (1 - image_weight) * heatmap_colored + image_weight * image
+    cam = (1 - image_weight) * heatmap_colored + image_weight * original_img
     cam = np.clip(cam, 0, 1)
     return np.uint8(255 * cam)
 
-# ====== Функция предсказания с Grad-CAM ======
-def predict_patient_ensemble(
-    patient_df, 
-    autoencoder, 
-    binary_classifier, 
-    thresholds, 
-    device, 
+def gradcam_for_binary_classifier(model, input_tensor, target_layer, device):
+    model.eval()
+    input_tensor = input_tensor.to(device).requires_grad_(True)
+    features = None
+    def hook_fn(module, inp, out):
+        nonlocal features
+        features = out
+        features.retain_grad()
+    handle = target_layer.register_forward_hook(hook_fn)
+    logits = model(input_tensor)
+    handle.remove()
+    logits.backward()
+    grads = features.grad
+    pooled_grads = torch.mean(grads, dim=[0, 2, 3])
+    feature_map = features[0]
+    cam = torch.zeros(feature_map.shape[1:], device=device)
+    for i in range(feature_map.shape[0]):
+        cam += pooled_grads[i] * feature_map[i]
+    cam = F.relu(cam)
+    cam = cam - cam.min()
+    cam = cam / (cam.max() + 1e-8)
+    return cam.detach().cpu().numpy()
+
+# ====== TTA-трансформы и функция ======
+class AddGaussianNoiseTTA:
+    def __init__(self, std=0.015):
+        self.std = std
+    def __call__(self, img):
+        noise = np.random.normal(0, self.std, img.shape).astype(np.float32)
+        return np.clip(img + noise, 0.0, 1.0)
+
+TTA_TRANSFORMS = [
+    lambda x: x,
+    lambda x: np.fliplr(x).copy() if x.ndim == 3 else np.fliplr(x),
+    AddGaussianNoiseTTA(std=0.015),
+    lambda x: cv2.GaussianBlur(x, (5, 5), sigmaX=0.5) if x.ndim == 2 else cv2.GaussianBlur(x, (5, 5), sigmaX=0.5)[..., np.newaxis],
+]
+
+def predict_with_tta(model, img_tensor, tta_transforms, device, mean_val, std_val):
+    """
+    Применяет TTA к одному изображению.
+    img_tensor: [1, 1, H, W], нормализованный.
+    """
+    model.eval()
+    # Денормализуем → [0,1]
+    img_01 = img_tensor * std_val + mean_val  # [1, 1, H, W]
+    img_np = img_01.squeeze().cpu().numpy()   # [H, W]
+    if img_np.ndim == 2:
+        img_np = img_np[..., np.newaxis]      # [H, W, 1]
+
+    logits = []
+    with torch.no_grad():
+        for tform in tta_transforms:
+            aug_img = tform(img_np)  # [H, W] or [H, W, 1]
+            if aug_img.ndim == 2:
+                aug_img = aug_img[..., np.newaxis]
+            # Нормализуем обратно
+            aug_img = (aug_img - mean_val) / std_val
+            aug_tensor = torch.from_numpy(aug_img).permute(2, 0, 1).unsqueeze(0).float().to(device)
+            logit = model(aug_tensor).item()
+            logits.append(logit)
+    return np.mean(logits)
+
+# ====== Основная функция предсказания с TTA ======
+def predict_patient_with_gradcam(
+    patient_df,
+    binary_classifier,
+    ae_model,
+    thresholds,
+    device,
     output_root: Path,
-    img_size=512
+    img_size=IMG_SIZE
 ):
     slice_paths = patient_df['path_image'].tolist()
     orig_paths = patient_df['orig_path'].tolist()
-    if not slice_paths:
-        return 0, 0.0, 0.0, ""
 
-    transform = T.Compose([
-        T.Resize((img_size, img_size)),
+    if not slice_paths:
+        return 0, 0.0, ""
+
+    transform_ae = T.Compose([
+        T.Resize((resize_before_crop, resize_before_crop), interpolation=T.InterpolationMode.BILINEAR),
+        T.CenterCrop(img_size),
         T.ToTensor(),
-        T.Normalize(mean=[0.5], std=[0.5])
+        T.Normalize(mean=[dataset_mean], std=[dataset_std])
+    ])
+    
+    transform_binary = T.Compose([
+        T.Resize((resize_before_crop, resize_before_crop), interpolation=T.InterpolationMode.BILINEAR),
+        T.CenterCrop(img_size),
+        T.ToTensor(),
+        T.Normalize(mean=[dataset_mean], std=[dataset_std])
     ])
 
-    autoencoder.eval()
     binary_classifier.eval()
+    ae_model.eval()
 
     recon_errors = []
     pathology_probs = []
-    valid_indices = []
-    best_images = []
-    gradcam_activations = []
-    gradcam_gradients = []
-    feature_maps = []
+    images = []
+    orig_paths_filtered = []
 
-    for idx, (path, orig_path) in enumerate(zip(slice_paths, orig_paths)):
+    for path, orig_path in zip(slice_paths, orig_paths):
         try:
-            img = Image.open(path).convert('L').copy()
-            best_images.append(img)
+            if not os.path.exists(path):
+                continue
+            img = Image.open(path).convert('L')
 
-            x_transformed = transform(img)
-            x = x_transformed.unsqueeze(0).to(device)
-            x.requires_grad_(True)
+            # Autoencoder (без TTA)
+            x_ae = transform_ae(img).unsqueeze(0).to(device)
+            with torch.no_grad():
+                recon = ae_model(x_ae)
+                recon_err = masked_reconstruction_error(x_ae, recon, lung_threshold=thresholds['lung_mask_threshold'])
+            recon_errors.append(recon_err)
 
-            features = None
-            def forward_hook(module, input, output):
-                nonlocal features
-                features = output
-                features.retain_grad()
-
-            target_layer = binary_classifier.backbone[7][-1].conv2
-            handle = target_layer.register_forward_hook(forward_hook)
-
-            logits = binary_classifier(x)
-            prob = torch.sigmoid(logits).item()
+            # Classifier WITH TTA
+            x_bin = transform_binary(img).unsqueeze(0).to(device)
+            logit_tta = predict_with_tta(
+                binary_classifier, 
+                x_bin, 
+                TTA_TRANSFORMS, 
+                device, 
+                mean_val=dataset_mean, 
+                std_val=dataset_std
+            )
+            prob = torch.sigmoid(torch.tensor(logit_tta)).item()
             pathology_probs.append(prob)
 
-            binary_classifier.zero_grad()
-            logits.backward(torch.tensor([1.0]).to(device), retain_graph=True)
-
-            gradients = features.grad
-            pooled_grads = torch.mean(gradients, dim=[0, 2, 3])
-            feature_map = features[0]
-
-            cam = torch.zeros(feature_map.shape[1:], device=device)
-            for i in range(feature_map.shape[0]):
-                cam += pooled_grads[i] * feature_map[i]
-
-            cam = cam - cam.min()
-            if cam.max() > 0:
-                cam = cam / cam.max()
-            else:
-                cam = torch.zeros_like(cam)
-            cam_map = cam.detach().cpu().numpy()
-
-            gradcam_activations.append(cam_map)
-            gradcam_gradients.append(gradients.cpu().numpy().mean(axis=(0, 2, 3)))
-            feature_maps.append(feature_map.detach().cpu().numpy())
-            valid_indices.append(idx)
-            handle.remove()
-
-            with torch.no_grad():
-                recon = autoencoder(x)
-            masked_err = masked_reconstruction_error(x, recon, lung_threshold=thresholds['lung_mask_threshold'])
-            recon_errors.append(masked_err[0])
+            images.append(img)
+            orig_paths_filtered.append(orig_path)
 
         except Exception as e:
             print(f"Ошибка обработки {path}: {e}")
             continue
 
     if not pathology_probs:
-        return 0, 0.0, 0.0, ""
+        return 0, 0.0, ""
 
-    best_idx_local = int(np.argmax(pathology_probs))
-    best_idx_global = valid_indices[best_idx_local]
-
-    max_prob = pathology_probs[best_idx_local]
-    max_recon = recon_errors[best_idx_local]
-    best_activation = gradcam_activations[best_idx_local]
-    best_orig_path = orig_paths[best_idx_global]
-    best_img = best_images[best_idx_local]
+    max_recon = max(recon_errors)
+    max_prob = max(pathology_probs)
 
     recon_min = thresholds['recon_error_min']
     recon_max = thresholds['recon_error_max']
     recon_norm = (max_recon - recon_min) / (recon_max - recon_min + 1e-8)
     anomaly_score = max(recon_norm, max_prob)
-
-    is_anomaly = max_prob > thresholds['balanced_anomaly_threshold']
+    is_anomaly = anomaly_score > thresholds['balanced_anomaly_threshold']
 
     mask_path = ""
     if is_anomaly:
-        orig_path_obj = Path(best_orig_path)
-        study_name = orig_path_obj.parts[0]
-        filename_stem = orig_path_obj.stem
+        # Найдём срез с максимальным anomaly_score
+        slice_scores = [
+            max(
+                (recon - recon_min) / (recon_max - recon_min + 1e-8),
+                prob
+            )
+            for recon, prob in zip(recon_errors, pathology_probs)
+        ]
+        best_idx = int(np.argmax(slice_scores))
 
-        debug_dir = output_root / "masks" / study_name
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        heatmap_path = debug_dir / f"{filename_stem}.png"
+        best_img = images[best_idx]
+        best_orig_path = orig_paths_filtered[best_idx]
 
-        rgb_img = np.array(best_img.resize((img_size, img_size)))
-        rgb_img = np.stack([rgb_img, rgb_img, rgb_img], axis=-1).astype(np.float32) / 255.0
-        overlay = overlay_cam_on_image(best_activation, rgb_img, image_weight=0.4)
-        Image.fromarray(overlay).save(heatmap_path)
+        # === Grad-CAM ===
+        x_best = transform_binary(best_img).unsqueeze(0).to(device)
+        try:
+            target_layer = binary_classifier.backbone[7][-1].conv2
+            cam_map = gradcam_for_binary_classifier(binary_classifier, x_best, target_layer, device)
 
-        mask_path = str(heatmap_path.relative_to(output_root))
+            orig_path_obj = Path(best_orig_path)
+            study_name = orig_path_obj.parts[0]
+            filename_stem = orig_path_obj.stem
 
-        with open(debug_dir / f"{filename_stem}_debug.log", "w") as f:
-            print(f"  Best slice idx: {best_idx_global}, path: {best_orig_path}", file=f)
-            print(f"  Max prob: {max_prob:.4f}", file=f)
-            print(f"  CAM stats: min={best_activation.min():.6f}, max={best_activation.max():.6f}", file=f)
+            debug_dir = output_root / "masks" / study_name
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            heatmap_path = debug_dir / f"{filename_stem}.png"
 
-    return int(is_anomaly), anomaly_score, max_prob, mask_path
+            # Подготовка оригинального изображения (без ресайза)
+            orig_img_np = np.array(best_img).astype(np.float32) / 255.0
+            orig_img_rgb = np.stack([orig_img_np, orig_img_np, orig_img_np], axis=-1)
 
-# ====== Основная функция ======
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_csv", type=str, required=True, help="Путь к data.csv")
-    parser.add_argument("--model_dir", type=str, default="./final_ensemble_model", help="Папка с моделями")
-    parser.add_argument("--output_csv", type=str, default="predictions.csv", help="Выходной CSV")
-    args = parser.parse_args()
+            # Наложение тепловой карты на оригинальное изображение
+            overlay = overlay_cam_on_original_image(
+                cam_map,
+                orig_img_rgb,
+                cropped_size=img_size,
+                resized_size=resize_before_crop,
+                image_weight=0.4
+            )
+            Image.fromarray(overlay).save(heatmap_path)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Используем устройство: {device}")
+            mask_path = str(heatmap_path.relative_to(output_root))
+        except Exception as e:
+            print(f"Ошибка Grad-CAM: {e}")
 
-    config_path = Path(args.model_dir) / "model_config.json"
-    with open(config_path) as f:
-        config = json.load(f)
-
-    img_size = config.get('img_size', 512)
-    backbone_out_dim = config['backbone_out_dim']
-
-    backbone = create_resnet_backbone()
-    ae = NormAutoencoder(backbone, img_size=img_size)
-    bin_model = BinaryClassifier(backbone, backbone_out_dim, freeze_backbone=True)
-
-    ae.load_state_dict(
-        torch.load(Path(args.model_dir) / "autoencoder.pth", map_location=device),
-        strict=False
-    )
-    bin_model.load_state_dict(
-        torch.load(Path(args.model_dir) / "binary_classifier.pth", map_location=device),
-        strict=False
-    )
-
-    ae = ae.to(device).eval()
-    bin_model = bin_model.to(device).eval()
-
-    thresholds_path = Path(args.model_dir) / "thresholds.json"
-    with open(thresholds_path) as f:
-        thresholds = json.load(f)
-
-    df = pd.read_csv(args.data_csv)
-    output_root = Path(args.output_csv).parent
-    df['path_image'] = df['path_image'].apply(lambda p: str(Path(args.data_csv).parent / p))
-    df = select_central_slices(df, num_slices=32, step=1)
-
-    results = []
-    for (study_uid, series_uid), group in tqdm(
-        df.groupby(['study_uid', 'series_uid']), desc="Предсказание по сериям"
-    ):
-        pred, score, max_prob, mask_path = predict_patient_ensemble(
-            group,
-            ae,
-            bin_model,
-            thresholds,
-            device,
-            output_root=output_root,
-            img_size=img_size
-        )
-        results.append({
-            'study_uid': study_uid,
-            'series_uid': series_uid,
-            'probability_of_pathology': max_prob,
-            'final_prediction': pred,
-            'mask_path': mask_path
-        })
-
-    final_df = pd.DataFrame(results)
-    final_df.to_csv(args.output_csv, index=False)
-    print(f"\n✅ Предсказания сохранены в: {args.output_csv}")
-    print("\nСтатистика:")
-    print(final_df['final_prediction'].value_counts())
-    print(f"\nВсего серий: {len(final_df)}")
-
-if __name__ == "__main__":
-    main()
+    return int(is_anomaly), anomaly_score, mask_path

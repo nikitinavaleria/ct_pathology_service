@@ -1,384 +1,245 @@
 # backend/app/ml/pathology_model.py
 from __future__ import annotations
-
-import sys
-import time
+import os
+import io
 import json
 import base64
 import shutil
-import zipfile, tarfile
+import zipfile
+import time
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
-import cv2
-import numpy as np
 import pandas as pd
-from PIL import Image
-
 import torch
-import torch.nn.functional as F
-from torchvision import transforms as T
-from torchvision.models import resnet18
 
+# наши «внутренности» — чисто перенесённые из ноутбука
+from backend.app.ml.config import IMG_SIZE, dataset_mean, dataset_std  # type: ignore
+from backend.app.ml.dicom_to_png import process_dicom_to_png  # type: ignore
+from backend.app.ml.utils import select_central_slices  # type: ignore
+from backend.app.ml.predict import predict_patient_with_gradcam  # type: ignore
+from backend.app.ml.models_local import BinaryClassifier, NormAutoencoder, create_resnet_backbone  # type: ignore
 
-# ===================== УТИЛИТЫ =====================
+# -------------------------
+# УТИЛИТЫ
+# -------------------------
 
-def _img_bgr_to_b64(img_bgr: np.ndarray) -> str:
-    ok, buf = cv2.imencode(".png", img_bgr)
-    return base64.b64encode(buf).decode("ascii") if ok else ""
-
-
-def _adaptive_window(pixel_array: np.ndarray) -> np.ndarray:
-    """Оконное преобразование: 2..98 перцентили, нормировка в [0..255]."""
-    pa = pixel_array.astype(np.float32)
-    p2, p98 = np.percentile(pa, (2, 98))
-    width = max(100.0, float(p98 - p2))
-    center = (p2 + p98) / 2.0
-    lo = center - width / 2.0
-    hi = center + width / 2.0
-    clipped = np.clip(pa, lo, hi)
-    norm = (clipped - lo) / max(1e-6, (hi - lo))
-    return (norm * 255.0).astype(np.uint8)
-
-
-def _looks_like_dicom(path: Path) -> bool:
-    """Проверка DICOM по сигнатуре 'DICM' или попытке pydicom.dcmread."""
-    try:
-        with open(path, "rb") as f:
-            f.seek(128)
-            sig = f.read(4)
-        if sig == b"DICM":
-            return True
-    except Exception:
-        pass
-    try:
-        import pydicom
-        pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
-        return True
-    except Exception:
-        return False
-
-
-def _detect_file_type(path: Path) -> str:
-    if path.is_dir():
-        return "dir"
-    try:
-        if zipfile.is_zipfile(str(path)):
-            return "zip"
-    except Exception:
-        pass
-    try:
-        if tarfile.is_tarfile(str(path)):
-            return "tar"
-    except Exception:
-        pass
-
-    ext = path.suffix.lower()
-    if ext in (".png", ".jpg", ".jpeg"):
-        return "image"
-    if ext in (".dcm", ".dicom") or _looks_like_dicom(path):
-        return "dicom"
-    return "unknown"
-
-
-# ===================== DICOM → кадры + UIDs =====================
-
-def _read_dicom_frames_and_uids(dcm_path: Path) -> Tuple[List[np.ndarray], str, str]:
+def _default_models_dir() -> Path:
     """
-    Читаем DICOM → (список u8 кадров, study_uid, series_uid).
-    Корректно обрабатываем multi-frame и HU (RescaleSlope/Intercept).
+    По умолчанию храним веса в backend/models.
+    Этот файл находится: backend/app/ml/pathology_model.py
+    → parents[2] = backend
     """
-    import pydicom
-    ds = pydicom.dcmread(str(dcm_path))
-    slope = float(getattr(ds, "RescaleSlope", 1.0))
-    intercept = float(getattr(ds, "RescaleIntercept", 0.0))
-    px = ds.pixel_array.astype(np.float32) * slope + intercept
+    here = Path(__file__).resolve()
+    return here.parents[2] / "models"
 
-    study_uid = getattr(ds, "StudyInstanceUID", None)
-    series_uid = getattr(ds, "SeriesInstanceUID", None)
+def _copy_file_or_dir(src: Path, dst: Path) -> None:
+    if src.is_file():
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+    elif src.is_dir():
+        shutil.copytree(src, dst, dirs_exist_ok=True)
 
-    # Фоллбэки, если теги отсутствуют
-    if not study_uid:
-        study_uid = dcm_path.parent.parent.name if dcm_path.parent.parent != dcm_path.parent else dcm_path.parent.name
-    if not series_uid:
-        series_uid = dcm_path.parent.name
+def _extract_zip_to_out(zip_src: Path, out_root: Path, src_root: Path):
+    try:
+        with zipfile.ZipFile(zip_src, 'r') as zf:
+            namelist = zf.namelist()
+            if not namelist:
+                return []
+    except (zipfile.BadZipFile, OSError, zipfile.LargeZipFile):
+        return []
 
-    frames = []
-    if px.ndim == 3:  # multi-frame
-        for i in range(px.shape[0]):
-            frames.append(_adaptive_window(px[i]))
-    elif px.ndim == 2:
-        frames.append(_adaptive_window(px))
+    rel_zip = zip_src.relative_to(src_root)
+    extract_dir = out_root / rel_zip.with_suffix('')
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    mapping = []
+    with zipfile.ZipFile(zip_src, 'r') as zf:
+        for member in zf.namelist():
+            if member.endswith('/'):
+                continue
+            target_path = extract_dir / member
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, open(target_path, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+            mapping.append((str(rel_zip), str(target_path.relative_to(out_root))))
+    return mapping
+
+def _img_to_b64(p: Path | None) -> Optional[str]:
+    if not p or not p.exists():
+        return None
+    with open(p, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+def _load_thresholds(model_dir: Path) -> Dict[str, Any]:
+
+    json_p = model_dir / "thresholds.json"
+    if json_p.exists():
+        with open(json_p, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+
+
+
+
+
+def _load_model_and_thresholds(model_dir: Path, device: torch.device) -> Tuple[torch.nn.Module, torch.nn.Module, Dict[str, Any], int]:
+    """
+    Повторяет логику ноутбука: читает model_config.json, грузит backbone, AE и бинарный классификатор.
+    """
+    map_location = "cpu" if device.type == "cpu" else None
+
+    # model_config.json обязателен (как в ноутбуке)
+    cfg_p = model_dir / "model_config.json"
+    with open(cfg_p, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    img_size = int(cfg.get("img_size", 512))
+    backbone_out_dim = int(cfg["backbone_out_dim"])
+
+    # backbone и модели — как в ноутбуке
+    backbone = create_resnet_backbone()
+    ae_model = NormAutoencoder(backbone, backbone_out_dim)
+    ae_model.load_state_dict(
+        torch.load(model_dir / "autoencoder.pth", map_location=map_location),
+        strict=False
+    )
+    ae_model = ae_model.to(device).eval()
+
+    bin_model = BinaryClassifier(backbone, backbone_out_dim, freeze_backbone=True)
+    bin_model.load_state_dict(
+        torch.load(model_dir / "binary_classifier.pth", map_location=map_location),
+        strict=False
+    )
+    bin_model = bin_model.to(device).eval()
+
+    thresholds = _load_thresholds(model_dir)
+    return bin_model, ae_model, thresholds, img_size
+
+# -------------------------
+# ПУБЛИЧНЫЙ API
+# -------------------------
+
+def analyze(file_path: str, temp_dir: str, model_dir: Optional[str] = None) -> dict:
+    """
+    Минимально-инвазивный враппер поверх логики ноутбука.
+    Возвращает:
+      {
+        "db_row": {...},               # одна строка отчёта
+        "explain_heatmap_b64": str|None,
+        "explain_mask_b64": str|None,
+      }
+    """
+    src_path = Path(temp_dir) / "input"
+    out_path = Path(temp_dir) / "out"
+    src_path.mkdir(parents=True, exist_ok=True)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    # 1) копия входа
+    in_path = Path(file_path)
+    local_copy = src_path / in_path.name
+    _copy_file_or_dir(in_path, local_copy)
+
+    # 2) распаковка ZIP + копия остальных файлов
+    mappings = []
+    if local_copy.suffix.lower() == ".zip":
+        mappings += _extract_zip_to_out(local_copy, out_path, src_path)
+
+    for item in src_path.rglob("*"):
+        if item.is_file() and item.suffix.lower() != ".zip":
+            rel = item.relative_to(src_path)
+            dst = out_path / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, dst)
+            mappings.append((str(rel), str(rel)))
+
+    # 3) mapping.csv + dicom → png → data.csv
+    pd.DataFrame(mappings, columns=["orig_path", "real_path"]).to_csv(out_path / "file_mapping.csv", index=False)
+
+    process_dicom_to_png(pd.read_csv(out_path / "file_mapping.csv"), out_path)
+
+    data_csv = out_path / "data.csv"
+    if not data_csv.exists():
+        return {
+            "db_row": {"processing_status": "Error: data.csv not produced", "pathology": 0},
+            "explain_heatmap_b64": None,
+            "explain_mask_b64": None,
+        }
+
+    # 4) модели/пороги
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    models_root = Path(model_dir) if model_dir else Path(os.getenv("MODEL_DIR", _default_models_dir()))
+    binary_classifier, ae_model, thresholds, img_size = _load_model_and_thresholds(models_root, device)
+
+    # 5) инференс «как у коллеги»
+    df = pd.read_csv(data_csv)
+
+    # как в main.py: делаем абсолютные пути и отбираем центральные срезы на всем df
+    df["path_image"] = df["path_image"].apply(lambda p: str((out_path / p).resolve()))
+    df = select_central_slices(df, num_slices=16, step=1)
+
+    masks_root = out_path / "masks"
+    masks_root.mkdir(exist_ok=True)
+
+    rows = []
+    if "series_uid" in df.columns:
+        groups = df.groupby(["study_uid", "series_uid"])
     else:
-        last2 = px.reshape(px.shape[-2], px.shape[-1])
-        frames.append(_adaptive_window(last2))
+        # если series_uid нет — группируем только по study_uid (редкий случай)
+        groups = df.groupby(["study_uid"])
 
-    return frames, str(study_uid), str(series_uid)
+    for keys, group in groups:
+        # распакуем идентификаторы для отчёта
+        if isinstance(keys, tuple):
+            study_uid, series_uid = keys
+        else:
+            study_uid, series_uid = keys, None
 
-
-# ===================== СЕТИ =====================
-
-class _SimpleAutoEncoder(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        m = resnet18(weights=None)
-        m.conv1 = torch.nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.enc = m
-        self.dec = torch.nn.Sequential(
-            torch.nn.Conv2d(512, 128, 1),
-            torch.nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-            torch.nn.Conv2d(128, 32, 1),
-            torch.nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-            torch.nn.Conv2d(32, 1, 1),
+        # ВАЖНО: сигнатура и порядок аргументов — как в ноутбуке
+        pred, max_prob, saved_mask_rel = predict_patient_with_gradcam(
+            group,
+            binary_classifier,
+            ae_model,
+            thresholds,
+            device,
+            output_root=masks_root,
+            img_size=img_size,
         )
 
-    def forward(self, x):
-        e = self._f(x)
-        y = self.dec(e)
-        if y.shape[-2:] != x.shape[-2:]:
-            y = F.interpolate(y, size=x.shape[-2:], mode="bilinear", align_corners=False)
-        return y
-
-    def _f(self, x):
-        m = self.enc
-        x = m.conv1(x); x = m.bn1(x); x = m.relu(x); x = m.maxpool(x)
-        x = m.layer1(x); x = m.layer2(x); x = m.layer3(x); x = m.layer4(x)
-        return x
-
-
-class _SimpleBinaryClassifier(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        m = resnet18(weights=None)
-        m.conv1 = torch.nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        m.fc = torch.nn.Linear(512, 1)
-        self.net = m
-
-    def forward(self, x):
-        return torch.sigmoid(self.net(x)).squeeze(1)
-
-
-# ===================== ГЛАВНЫЙ КЛАСС =====================
-
-class PathologyModel:
-    def __init__(self, models_dir: str = "models", device: str = "cpu", config: Optional[object] = None, **kwargs):
-        self.models_dir = Path(models_dir).resolve()
-        self.device = torch.device(device if device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
-
-        # utils.select_central_slices
-        ml_dir = Path(__file__).resolve().parent
-        if str(ml_dir) not in sys.path:
-            sys.path.insert(0, str(ml_dir))
-        import utils as ml_utils
-        self._select_central_slices = ml_utils.select_central_slices
-
-        # параметры
-        if config is not None and getattr(config, "img_size", None):
-            self.img_size = int(config.img_size)
-            self.min_frames_selected = int(getattr(config, "min_frames_selected", 64))
-        else:
-            self.img_size = 512
-            self.min_frames_selected = 64
-
-        self.transform = T.Compose([
-            T.Resize((self.img_size, self.img_size)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.5], std=[0.5]),
-        ])
-
-        # thresholds.json
-        thr_path = self.models_dir / "thresholds.json"
-        self.thresholds = json.loads((thr_path.read_text(encoding="utf-8")))
-        self._thr_prob = float(self.thresholds.get("balanced_anomaly_threshold", 0.5))
-
-        # модели
-        self.autoencoder = _SimpleAutoEncoder().to(self.device)
-        self.classifier = _SimpleBinaryClassifier().to(self.device)
-        self._load_weights()
-
-        print(f"[PathologyModel] ready | models={self.models_dir} | device={self.device} | img={self.img_size}")
-
-    def _load_weights(self):
-        def _load(model: torch.nn.Module, p: Path):
-            if not p.exists():
-                print(f"[WARN] weights not found: {p}")
-                return
-            sd = torch.load(str(p), map_location=self.device)
-            if isinstance(sd, dict) and "state_dict" in sd:
-                sd = sd["state_dict"]
-                sd = {k.split("model.", 1)[-1]: v for k, v in sd.items()}
-            model.load_state_dict(sd, strict=False)
-        _load(self.autoencoder, self.models_dir / "autoencoder.pth")
-        _load(self.classifier,  self.models_dir / "binary_classifier.pth")
-        self.autoencoder.eval()
-        self.classifier.eval()
-
-    # ---------- подготовка входа (PNG + UIDs) ----------
-
-    def _extract_pngs_with_uids(self, src: Path, tmp: Path) -> List[Dict[str, str]]:
-        """
-        Возвращает список записей:
-          {"png_path": "...", "study_uid": "...", "series_uid": "...", "orig_path": "..."}
-        """
-        png_dir = tmp / "png"
-        png_dir.mkdir(parents=True, exist_ok=True)
-
-        recs: List[Dict[str, str]] = []
-
-        def _save(frames: List[np.ndarray], stem: str, study_uid: str, series_uid: str, orig: Path):
-            for i, fr in enumerate(frames):
-                p = png_dir / f"{stem}_{i:04d}.png"
-                cv2.imwrite(str(p), fr)
-                recs.append({
-                    "png_path": str(p),
-                    "study_uid": study_uid or "study",
-                    "series_uid": series_uid or "series",
-                    "orig_path": str(orig),
-                })
-
-        ftype = _detect_file_type(src)
-
-        if ftype == "dir":
-            for d in src.rglob("*"):
-                if d.is_file() and _looks_like_dicom(d):
-                    try:
-                        frames, s_uid, se_uid = _read_dicom_frames_and_uids(d)
-                        _save(frames, d.stem, s_uid, se_uid, d)
-                    except Exception as e:
-                        print("[WARN] dicom read failed:", d, e)
-
-        elif ftype == "zip":
-            unpack = tmp / "unpacked"; unpack.mkdir(parents=True, exist_ok=True)
-            shutil.unpack_archive(str(src), str(unpack))
-            for d in unpack.rglob("*"):
-                if d.is_file() and _looks_like_dicom(d):
-                    try:
-                        frames, s_uid, se_uid = _read_dicom_frames_and_uids(d)
-                        _save(frames, d.stem, s_uid, se_uid, d)
-                    except Exception as e:
-                        print("[WARN] dicom read failed:", d, e)
-
-        elif ftype == "tar":
-            unpack = tmp / "unpacked"; unpack.mkdir(parents=True, exist_ok=True)
-            with tarfile.open(str(src)) as tf: tf.extractall(str(unpack))
-            for d in unpack.rglob("*"):
-                if d.is_file() and _looks_like_dicom(d):
-                    try:
-                        frames, s_uid, se_uid = _read_dicom_frames_and_uids(d)
-                        _save(frames, d.stem, s_uid, se_uid, d)
-                    except Exception as e:
-                        print("[WARN] dicom read failed:", d, e)
-
-        elif ftype == "dicom":
-            frames, s_uid, se_uid = _read_dicom_frames_and_uids(src)
-            _save(frames, src.stem, s_uid, se_uid, src)
-
-        elif ftype == "image":
-            dst = png_dir / src.name; shutil.copy(src, dst)
-            # для не-DICOM — фоллбэки: study=имя папки выше, series=имя файла без расширения
-            recs.append({
-                "png_path": str(dst),
-                "study_uid": src.parent.name or "study",
-                "series_uid": src.stem or "series",
-                "orig_path": str(src),
-            })
-
-        else:
-            print(f"[WARN] unsupported input: {src}")
-
-        return recs
-
-    # ---------- инференс по серии ----------
-
-    def _to_tensor(self, im: Image.Image) -> torch.Tensor:
-        return self.transform(im.convert("L"))
-
-    def _infer_series(self, png_paths: List[Path]) -> Tuple[float, int, Optional[np.ndarray], Optional[np.ndarray]]:
-        if not png_paths:
-            return 0.0, 0, None, None
-        xs, raws_u8 = [], []
-        for p in png_paths:
-            im = Image.open(p)
-            xs.append(self._to_tensor(im))
-            raws_u8.append(np.array(im.convert("L"), dtype=np.uint8))
-        x = torch.stack(xs, 0).to(self.device)
-        with torch.no_grad():
-            recon = self.autoencoder(x)
-            probs = self.classifier(x).detach().cpu()
-        probs_np = probs.numpy()
-        prob_series = float(probs_np.max())
-        best_idx = int(np.argmax(probs_np))
-        pred = int(prob_series >= self._thr_prob)
-
-        hm_bgr, mask_bgr = None, None
-        try:
-            err = (recon[best_idx, 0] - x[best_idx, 0]) ** 2
-            em = err.detach().cpu().numpy()
-            em -= em.min()
-            if em.max() > 0: em /= em.max()
-            em_u8 = (em * 255).astype(np.uint8)
-            bg = cv2.cvtColor(raws_u8[best_idx], cv2.COLOR_GRAY2BGR)
-            heat_rgb = cv2.applyColorMap(em_u8, cv2.COLORMAP_JET)
-            hm_bgr = cv2.addWeighted(bg, 0.5, heat_rgb, 0.5, 0.0)
-            thr = float(np.quantile(em, 0.90))
-            mask = (em >= thr).astype(np.uint8) * 255
-            mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-        except Exception as e:
-            print("[WARN] heatmap failed:", e)
-
-        return prob_series, pred, hm_bgr, mask_bgr
-
-    # ---------- ПУБЛИЧНЫЙ API ----------
-
-    def analyze(self, file_path: str, temp_dir: str) -> dict:
-        t0 = time.time()
-        src, tmp = Path(file_path), Path(temp_dir)
-
-        # 1) получаем PNG и UIDs для каждого кадра
-        recs = self._extract_pngs_with_uids(src, tmp)
-        if not recs:
-            return {
-                "db_row": {
-                    "file_name": src.name,
-                    "processing_status": "Failed: no images",
-                    "pathology": 0,
-                    "probability": 0.0,
-                    "latency_ms": int((time.time()-t0)*1000),
-                },
-                "explain_heatmap_b64": "",
-                "explain_mask_b64": "",
-            }
-
-        # 2) DF с real UIDs для срезов
-        df = pd.DataFrame(recs)[["study_uid", "series_uid", "png_path", "orig_path"]]
-        df.rename(columns={"png_path": "path_image"}, inplace=True)
-
-        # 3) выбираем центральные срезы (как у тебя)
-        df_sel = self._select_central_slices(df, num_slices=min(self.min_frames_selected, len(df)), step=1)
-        if df_sel.empty:
-            df_sel = df
-        slice_paths = [Path(p) for p in df_sel["path_image"].tolist()]
-
-        # 3.1) Найдём самые частые study_uid и series_uid среди выбранных срезов
-        # (если несколько мод — берём первый по value_counts)
-        study_mode = df_sel["study_uid"].value_counts().index[0]
-        series_mode = df_sel["series_uid"].value_counts().index[0]
-
-        # 4) инференс
-        prob, pred, hm_bgr, mask_bgr = self._infer_series(slice_paths)
-
-        db_row = {
-            "file_name": src.name,
+        row = {
             "processing_status": "Success",
-            "pathology": int(pred),
-            "probability": float(prob),
-            "study_uid": str(study_mode),
-            "series_uid": str(series_mode),
-            "latency_ms": int((time.time()-t0)*1000),
+            "study_uid": study_uid,
+            **({"series_uid": series_uid} if series_uid is not None else {}),
+            "prob_pathology": float(max_prob),  # в ноуте это probability_of_pathology
+            "anomaly_score": float(max_prob),  # оставим дублирующее поле для совместимости
+            "mask_path": saved_mask_rel,  # путь ОТНОСИТЕЛЬНО masks_root
+            "pathology": int(pred),  # бинарное решение из функции (как в ноуте)
+        }
+        rows.append(row)
+
+    if not rows:
+        return {
+            "db_row": {"processing_status": "Error: no studies", "pathology": 0},
+            "explain_heatmap_b64": None,
+            "explain_mask_b64": None,
         }
 
-        return {
-            "db_row": db_row,
-            "explain_heatmap_b64": _img_bgr_to_b64(hm_bgr) if hm_bgr is not None else "",
-            "explain_mask_b64": _img_bgr_to_b64(mask_bgr) if mask_bgr is not None else "",
-        }
+    report_row = rows[0]  # у тебя дальше всё равно ожидается 1 строка
+
+    # 6) превью-картинки (mask_path относителен masks_root!)
+    explain_mask_b64 = None
+    explain_heatmap_b64 = None
+    if report_row.get("mask_path"):
+        mask_abs = masks_root / report_row["mask_path"]  # ← ключевое отличие
+        explain_mask_b64 = _img_to_b64(mask_abs)
+        # если в ноуте кладётся сразу heatmap — этого может и не быть; попытка не помешает
+        cand = mask_abs.with_name(mask_abs.stem.replace(".mask", ".heatmap") + ".png")
+        if cand.exists():
+            explain_heatmap_b64 = _img_to_b64(cand)
+
+    return {
+        "db_row": report_row,
+        "explain_heatmap_b64": explain_heatmap_b64,
+        "explain_mask_b64": explain_mask_b64,
+    }

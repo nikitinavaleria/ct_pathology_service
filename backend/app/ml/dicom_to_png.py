@@ -1,4 +1,4 @@
-from src.config import *
+from .config import *
 from pathlib import Path
 import numpy as np
 from PIL import Image
@@ -166,7 +166,7 @@ def process_dicom_to_png(df: pd.DataFrame, root_path: Path):
         data_csv_path = root_path / "data.csv"
         data_df.to_csv(data_csv_path, index=False)
         print(f"\n✅ Успешно сохранено записей в data.csv: {len(data_entries)}")
-
+        
         counts = data_df.groupby(data_df['path_image'].apply(lambda x: Path(x).parent.name)).size()
         print("\n📂 Количество срезов на исследование (первые 10):")
         for study, cnt in counts.head(10).items():

@@ -3,9 +3,9 @@ import tempfile
 import os
 import time
 from fastapi import APIRouter, File, HTTPException, UploadFile, Form
+from backend.app.ml.pathology_model import analyze as model_analyze
 
-
-def create_inference_router(model):
+def create_inference_router():
 
     router = APIRouter(prefix="/inference", tags=["inference"])
 
@@ -19,7 +19,8 @@ def create_inference_router(model):
                 tmpdir_path = Path(tmpdir)
                 path = tmpdir_path / filename
                 path.write_bytes(file_bytes)
-                report = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))['db_row']
+                # report = model.analyze(file_path=str(path), temp_dir=str(tmpdir_path))['db_row'] # TODO тут модель
+                report = model_analyze(file_path=str(path), temp_dir=str(tmpdir_path))['db_row']
                 print(report)
             elapsed = time.perf_counter() - start
             return {
