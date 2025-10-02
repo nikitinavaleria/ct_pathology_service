@@ -187,11 +187,13 @@ const PatientPage = () => {
                       <strong>Вероятность патологии:</strong>{" "}
                       <span
                         className={
-                          row.prob_pathology > 0.5
+                          row.prob_pathology && row.prob_pathology > 0.5
                             ? "high-probability"
                             : "low-probability"
                         }>
-                        {row.prob_pathology.toFixed(2)}
+                        {row.prob_pathology
+                          ? row.prob_pathology.toFixed(2)
+                          : "Н/Д"}
                       </span>
                     </div>
                     {row.pathology_cls_ru && (
@@ -214,7 +216,9 @@ const PatientPage = () => {
                     {row.pathology_cls_avg_prob && (
                       <div>
                         <strong>Средняя вероятность:</strong>{" "}
-                        {row.pathology_cls_avg_prob.toFixed(2)}
+                        {row.pathology_cls_avg_prob
+                          ? row.pathology_cls_avg_prob.toFixed(2)
+                          : "Н/Д"}
                       </div>
                     )}
                   </li>
