@@ -1,5 +1,6 @@
 import React from "react";
 import MyButton from "../MyButton/MyButton";
+import cl from "./PatientCard.module.scss";
 
 const PatientCard = ({
   className,
@@ -14,35 +15,44 @@ const PatientCard = ({
   onDeletePatient,
 }) => {
   return (
-    <div
-      className={`patient-card ${className}`}
-      // onClick={openPatientPage}
-    >
-      <h2 className="patient-card__name">{name}</h2>
+    <div className={cl.patientCard}>
       <div>
-        <p className="patient-card__date">
-          Создан: {new Date(createdAt).toLocaleDateString("ru-RU")}
-        </p>
-        <p className="patient-card__date">
-          Обновлен: {new Date(updatedAt).toLocaleDateString("ru-RU")}
-        </p>
+        <h2 className={cl.patientCardName}>{name}</h2>
+        <div>
+          <p className={cl.patientCardDate}>
+            Создан: {new Date(createdAt).toLocaleDateString("ru-RU")}
+          </p>
+          <p className={cl.patientCardDate}>
+            Обновлен: {new Date(updatedAt).toLocaleDateString("ru-RU")}
+          </p>
+        </div>
+        {description && <p className={cl.patientCardDesc}>{description}</p>}
       </div>
-      {description && <p className="patient-card__desc">{description}</p>}
 
-      <MyButton
-        onClick={onRemovePatient}
-        disabled={isUploading || isAnalyzing}
-        style={{ background: "#eee", color: "#333" }}>
-        Убрать пациента
-      </MyButton>
-      {onDeletePatient && (
+      <div className={cl.patientCardActions}>
         <MyButton
-          onClick={onDeletePatient}
+          onClick={() => openPatientPage()}
           disabled={isUploading || isAnalyzing}
           style={{ background: "#eee", color: "#333" }}>
-          Удалить пациента
+          Открыть
         </MyButton>
-      )}
+        {onRemovePatient && (
+          <MyButton
+            onClick={onRemovePatient}
+            disabled={isUploading || isAnalyzing}
+            className={cl.patientCardChange}>
+            Сменить пациента
+          </MyButton>
+        )}
+        {onDeletePatient && (
+          <MyButton
+            onClick={onDeletePatient}
+            disabled={isUploading || isAnalyzing}
+            className={cl.patientCardDelete}>
+            Удалить пациента
+          </MyButton>
+        )}
+      </div>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
 import PatientsSearch from "../components/ui/PatientsSearch/PatientsSearch";
@@ -15,17 +15,17 @@ const AddScanPage = () => {
   const [report, setReport] = useState(null);
   const [patientsList, setPatientsList] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const reportRef = useRef(null);
   const navigate = useNavigate();
 
   const openPatientPage = (id) => navigate(`/patient/${id}`);
 
-  // Получаем всех пациентов для поиска
   useEffect(() => {
     const fetchPatients = async () => {
       try {
         const response = await getPatients();
         const fetchedPatients = response.data.items ?? [];
-        setPatientsList(fetchedPatients.reverse()); // самые новые сверху
+        setPatientsList(fetchedPatients.reverse());
       } catch (err) {
         console.error("Ошибка при загрузке пациентов:", err);
       }
@@ -61,7 +61,14 @@ const AddScanPage = () => {
 
   const handleScanAnalyzed = (scanReport) => {
     setReport(scanReport);
-    console.log("Результат анализа:", scanReport);
+    if (scanReport) {
+      setTimeout(() => {
+        reportRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 300);
+    }
   };
 
   return (
@@ -110,7 +117,7 @@ const AddScanPage = () => {
         )}
 
         {report && (
-          <div className="patient-report">
+          <div className="patient-report" ref={reportRef}>
             <h3>Отчёт по исследованию</h3>
             <p>
               Потенциальная патология:{" "}
@@ -121,24 +128,40 @@ const AddScanPage = () => {
 
             <ul className="patient-report__list">
               {report.rows?.map((row, index) => (
-
-                <li
-                  key={index}
-                  className="patient-report__item">
-
+                <li key={index} className="patient-report__item">
                   <div className="patient-report__probability">
                     <strong>Вероятность патологии:</strong>{" "}
                     <span
                       className={
-                        row.probability_of_pathology > 0.5
+                        row.prob_pathology && row.prob_pathology > 0.5
                           ? "high-probability"
                           : "low-probability"
                       }>
-
-                      {row.probability_of_pathology.toFixed(2)}
-
+                      {row.prob_pathology ? row.prob_pathology.toFixed(2) : "Н/Д"}
                     </span>
                   </div>
+                  {row.pathology_cls_ru && (
+                    <div className="patient-report__pathology">
+                      <strong>Тип патологии:</strong> {row.pathology_cls_ru}
+                    </div>
+                  )}
+                  {row.processing_status && (
+                    <div className="patient-report__status">
+                      <strong>Статус обработки:</strong> {row.processing_status}
+                    </div>
+                  )}
+                  {row.pathology_cls_count > 0 && (
+                    <div className="patient-report__count">
+                      <strong>Количество классов патологий:</strong>{" "}
+                      {row.pathology_cls_count}
+                    </div>
+                  )}
+                  {row.pathology_cls_avg_prob && (
+                    <div className="patient-report__avg-prob">
+                      <strong>Средняя вероятность:</strong>{" "}
+                      {row.pathology_cls_avg_prob ? row.pathology_cls_avg_prob.toFixed(2) : "Н/Д"}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
