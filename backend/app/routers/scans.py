@@ -1,16 +1,11 @@
-import io
-import time
-import zipfile
 from typing import Dict, List, Optional
 from uuid import UUID
 import os
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
-from openpyxl import Workbook
-from psycopg.types.json import Json
 import tempfile
 from pathlib import Path
 
-from backend.app.ml.pathology_model import analyze_vlad, analyze_yolo
+from backend.app.ml.general_models_func import analyze_vlad, analyze_yolo
 from backend.app.schemas.schemas import ListResponse, ScanOut, ScanUpdate
 
 def create_router(db):
@@ -142,8 +137,8 @@ def create_router(db):
             raise HTTPException(status_code=500, detail="Model analysis failed") from e
 
 
-        study_uid = (result.get("study_uid") or "").strip()
-        series_uid = (result.get("series_uid") or "").strip()
+        study_uid = result["study_uid"]
+        series_uid = result["series_uid"]
         pathology = result["pathology"]
         pathology_prob = result["prob_pathology"]
 

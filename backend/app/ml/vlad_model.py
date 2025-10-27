@@ -2,6 +2,9 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 from torchvision.models import resnet18
+import json
+import numpy as np
+from pathlib import Path
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -101,3 +104,46 @@ class NormAutoencoder(pl.LightningModule):
     def configure_optimizers(self):
         params = self.decoder.parameters() if self.freeze_encoder else self.parameters()
         return torch.optim.AdamW(params, lr=1e-3, weight_decay=1e-4)
+
+
+class JsonPlattCalibrator:
+    def __init__(self, json_path: Path | str):
+        with open(json_path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        self.w = float(d["coef"][0])
+        self.b = float(d["intercept"][0])
+
+    def predict_proba(self, X):
+        X = np.asarray(X, float).ravel()
+        p1 = 1.0 / (1.0 + np.exp(-(self.w * X + self.b)))
+        return np.column_stack((1.0 - p1, p1))
+
+def load_Vlad_model(model_dir: Path, device: torch.device):
+
+    map_location = "cpu" if device.type == "cpu" else None
+
+    cfg_p = model_dir / "model_config.json"
+    with open(cfg_p, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    img_size = int(cfg.get("img_size", 512))
+    backbone_out_dim = int(cfg["backbone_out_dim"])
+
+    backbone = create_resnet_backbone()
+    ae_model = NormAutoencoder(backbone, backbone_out_dim)
+    ae_model.load_state_dict(torch.load(model_dir / "autoencoder.pth", map_location=map_location), strict=False)
+    ae_model = ae_model.to(device).eval()
+
+    bin_model = BinaryClassifier(backbone, backbone_out_dim, freeze_backbone=True)
+    bin_model.load_state_dict(torch.load(model_dir / "binary_classifier.pth", map_location=map_location), strict=False)
+    bin_model = bin_model.to(device).eval()
+
+    json_p = model_dir / "thresholds.json"
+    if json_p.exists():
+        with open(json_p, "r", encoding="utf-8") as f:
+            thresholds = json.load(f)
+
+    p = model_dir / "platt_calibrator_v1.json"
+    platt_calibrator = JsonPlattCalibrator(p)
+
+    return bin_model, ae_model, thresholds, img_size, platt_calibrator

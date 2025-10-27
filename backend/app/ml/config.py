@@ -11,8 +11,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MIN_FRAMES_SELECTED = 64
 THRESHOLD_FRAMES = 10
 H, W = IMG_SIZE, IMG_SIZE
-
 resize_before_crop = int(np.ceil(IMG_SIZE/ 0.8))
-
 dataset_mean = 0.5
 dataset_std  = 0.5
