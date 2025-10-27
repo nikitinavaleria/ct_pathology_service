@@ -142,26 +142,17 @@ def create_router(db):
         pathology = result["pathology"]
         pathology_prob = result["prob_pathology"]
 
-
-        # db.execute(
-        #     """UPDATE scans
-        #        SET report_json = %s,
-        #            updated_at = NOW()
-        #      WHERE id = %s
-        #     """,
-        #     [Json([db_row]), str(id)]
-        # ) # TODO поменять запись в json, сделать отдельные поля
-
-        # if study_uid and series_uid:
-        #     db.execute(
-        #         """UPDATE scans
-        #            SET study_uid = %s,
-        #                series_uid = %s,
-        #                updated_at = NOW()
-        #          WHERE id = %s
-        #         """,
-        #         [study_uid, series_uid, str(id)]
-        #     )
+        db.execute(
+                """UPDATE scans
+                   SET study_uid = %s,
+                       series_uid = %s,
+                       has_pathology = %s,
+                       pathology_prob = %s,
+                       updated_at = NOW()
+                 WHERE id = %s
+                """,
+                [study_uid, series_uid, pathology, pathology_prob, str(id)]
+            )
 
         return {
             "study_uid": study_uid,
@@ -179,31 +170,37 @@ def create_router(db):
         file_name: str = row["file_name"]
         file_bytes: bytes = row["file_bytes"]
 
-        try:
-            with tempfile.TemporaryDirectory(prefix="scan_tmp_", dir="/tmp") as tmpdir:
-                tmpdir_path = Path(tmpdir)
-                path = tmpdir_path / Path(file_name).name
-                path.write_bytes(file_bytes)
-                result = analyze_yolo(file_path=str(path), temp_dir=str(tmpdir_path))
-                # TODO db.execute
-                return {
-                    "pathology_en": result["pathology_en"],
-                    "pathology_ru": result["pathology_ru"],
-                    "pathology_count": result["pathology_count"],
-                    "pathology_avg_prob": result["pathology_avg_prob"]
-                }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail="Model analysis failed") from e
 
+        with tempfile.TemporaryDirectory(prefix="scan_tmp_", dir="/tmp") as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            path = tmpdir_path / Path(file_name).name
+            path.write_bytes(file_bytes)
+            result = analyze_yolo(file_path=str(path), temp_dir=str(tmpdir_path))
+
+            db.execute(
+                """UPDATE scans
+                   SET pathology_en = %s,
+                       pathology_ru = %s,
+                       pathology_count = %s,
+                       pathology_avg_prob = %s,
+                       updated_at = NOW()
+                 WHERE id = %s
+                """,
+                [result["pathology_en"], result["pathology_ru"], result["pathology_count"], result["pathology_avg_prob"], str(id)]
+            )
+
+            return {
+                "pathology_en": result["pathology_en"],
+                "pathology_ru": result["pathology_ru"],
+                "pathology_count": result["pathology_count"],
+                "pathology_avg_prob": result["pathology_avg_prob"]
+            }
 
     @router.get("/{id}/report")
     def scan_report(id: UUID):
-        row = db.fetch_one("SELECT report_json FROM scans WHERE id=%s", [str(id)])
+        row = db.fetch_one("SELECT scans.study_uid, scans.series_uid, scans.has_pathology, scans.pathology_prob, scans.pathology_en, scans.pathology_ru, scans.pathology_count, scans.pathology_avg_prob FROM scans WHERE id=%s", [str(id)])
         if not row:
             raise HTTPException(404, "Scan not found")
-
-        rows = row["report_json"] or []
-        has_pathology_any = any((int(r.get("pathology", 0)) == 1) and (r.get("processing_status") == "Success") for r in rows)
-        return {"rows": rows, "summary": {"has_pathology_any": has_pathology_any}}
+        return row
 
     return router

@@ -1,7 +1,3 @@
--- ===============================
--- CT Pathology Service — schema (simplified)
--- ===============================
-
 -- UUID генератор
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -54,14 +50,12 @@ CREATE TABLE IF NOT EXISTS scans (
   file_bytes         BYTEA NOT NULL,
   study_uid          TEXT,
   series_uid         TEXT,
-
-
-
-  report_json        JSONB NOT NULL DEFAULT '[]'::jsonb
-                     CHECK (jsonb_typeof(report_json) = 'array'),
-
-  report_xlsx        BYTEA,
-
+  has_pathology      INT,
+  pathology_prob     REAL,
+  pathology_en       TEXT,
+  pathology_ru       TEXT,
+  pathology_count    TEXT,
+  pathology_avg_prob TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -228,7 +228,4 @@ def predict_patient_with_gradcam(
     # === Шаг 3: Принятие решения на основе КАЛИБРОВАННОЙ вероятности ===
     is_anomaly = calibrated_prob > thresholds['balanced_anomaly_threshold']
 
-    print(f"balanced_anomaly_threshold: {thresholds['balanced_anomaly_threshold']:.4f}")
-    print(f"Сырой anomaly_score: {raw_anomaly_score:.4f} → Калиброванная вероятность: {calibrated_prob:.4f}")
-
     return int(is_anomaly), raw_anomaly_score, calibrated_prob

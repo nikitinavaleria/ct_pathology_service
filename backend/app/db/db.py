@@ -69,14 +69,6 @@ class DB_Connector:
             with self._lock:
                 conn = self._ensure_conn()
                 with conn.cursor() as cur:
-                    ph = sql.count("%s")
-                    plen = len(params or ())
-                    print(f"[DBDBG] placeholders={ph} params={plen}")
-                    if plen != ph:
-                        print("[DBDBG] SQL:\n", sql)
-                        print("[DBDBG] PARAM TYPES:", [type(x).__name__ for x in (params or ())])
-                        # осторожно с длинными данными (xlsx), обрежем вывод
-                        print("[DBDBG] PARAM VALUES:", [str(x)[:120] for x in (params or ())])
                     cur.execute(sql, params or ())
                     affected = cur.rowcount
                 conn.commit()

@@ -23,14 +23,9 @@ def process_dicom_to_png(df: pd.DataFrame, root_path: Path):
     png_root = root_path / "png_images"
     png_root.mkdir(exist_ok=True)
 
-    print(f"\n📊 Всего записей в маппинге: {len(df)}")
-    pneumo_rows = df[df['orig_path'].str.contains('pneumotorax', case=False, na=False)]
-    print(f"\n📁 Записей из pneumotorax_anon.zip: {len(pneumo_rows)}")
-
     # === Шаг 1: Собираем ВСЕ срезы (включая multi-frame) как отдельные записи ===
     all_slices = []
 
-    print("\n🔍 Чтение DICOM-файлов и извлечение срезов...")
     for _, row in tqdm(df.iterrows(), total=len(df), desc="Чтение файлов"):
         real_path = root_path / row['real_path']
         orig_path = row['orig_path']
@@ -96,8 +91,6 @@ def process_dicom_to_png(df: pd.DataFrame, root_path: Path):
 
         except Exception as e:
             continue
-
-    print(f"\n✅ Всего срезов после фильтрации: {len(all_slices)}")
 
     # === Шаг 2: Группировка по study_name ===
     study_to_slices = defaultdict(list)
@@ -165,11 +158,5 @@ def process_dicom_to_png(df: pd.DataFrame, root_path: Path):
         ]]
         data_csv_path = root_path / "data.csv"
         data_df.to_csv(data_csv_path, index=False)
-        print(f"\n✅ Успешно сохранено записей в data.csv: {len(data_entries)}")
-
-        counts = data_df.groupby(data_df['path_image'].apply(lambda x: Path(x).parent.name)).size()
-        print("\n📂 Количество срезов на исследование (первые 10):")
-        for study, cnt in counts.head(10).items():
-            print(f"  {study}: {cnt} срезов")
     else:
         print("\n⚠️ НИ ОДИН файл не был обработан как DICOM!")
