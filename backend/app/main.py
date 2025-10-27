@@ -6,8 +6,10 @@ from pathlib import Path
 
 from backend.app.config.config import Config, load_config
 from backend.app.db.db import DB_Connector
-# from backend.app.ml.pathology_model import PathologyModel
-from backend.app.routers import patients, scans, inference
+from backend.app.routers import patients, scans
+# from config.config import Config, load_config
+# from db.db import DB_Connector
+# from routers import patients, scans, inference
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 MODELS_DIR = BACKEND_DIR / "models"
@@ -35,7 +37,7 @@ def root():
 
 app.include_router(patients.create_router(db), prefix=API_PREFIX)
 app.include_router(scans.create_router(db),    prefix=API_PREFIX)
-app.include_router(inference.create_inference_router())
+
 
 if __name__ == "__main__":
     uvicorn.run("backend.app.main:app", host="0.0.0.0", port=8000, reload=True)

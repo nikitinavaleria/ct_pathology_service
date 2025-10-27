@@ -1,4 +1,4 @@
-from .config import *
+from backend.app.ml.config import *
 from pathlib import Path
 import numpy as np
 from PIL import Image
@@ -12,8 +12,8 @@ def apply_adaptive_window(pixel_array: np.ndarray) -> np.ndarray:
     p2, p98 = np.percentile(pixel_array, (2, 98))
     window_center = (p2 + p98) / 2.0
     window_width = p98 - p2
-    if window_width < 100:
-        window_width = 100
+    if window_width < 200:
+        window_width = 200
     min_hu = window_center - window_width // 2
     max_hu = window_center + window_width // 2
     image_clipped = np.clip(pixel_array, min_hu, max_hu)
@@ -82,7 +82,8 @@ def process_dicom_to_png(df: pd.DataFrame, root_path: Path):
                         'pixel_array': pixel_array[i].copy()
                     })
             else:
-                sl_array = pixel_array if pixel_array.ndim == 2 else pixel_array.reshape(pixel_array.shape[-2], pixel_array.shape[-1])
+                sl_array = pixel_array if pixel_array.ndim == 2 else pixel_array.reshape(pixel_array.shape[-2],
+                                                                                         pixel_array.shape[-1])
                 all_slices.append({
                     'study_name': study_name,
                     'study_uid': study_uid,
@@ -118,7 +119,7 @@ def process_dicom_to_png(df: pd.DataFrame, root_path: Path):
         if threshold_count * 2 >= total:
             trimmed = slices_sorted
         else:
-            trimmed = slices_sorted[threshold_count : -threshold_count] if threshold_count > 0 else slices_sorted
+            trimmed = slices_sorted[threshold_count: -threshold_count] if threshold_count > 0 else slices_sorted
 
         if len(trimmed) == 0:
             continue
@@ -166,7 +167,7 @@ def process_dicom_to_png(df: pd.DataFrame, root_path: Path):
         data_csv_path = root_path / "data.csv"
         data_df.to_csv(data_csv_path, index=False)
         print(f"\n✅ Успешно сохранено записей в data.csv: {len(data_entries)}")
-        
+
         counts = data_df.groupby(data_df['path_image'].apply(lambda x: Path(x).parent.name)).size()
         print("\n📂 Количество срезов на исследование (первые 10):")
         for study, cnt in counts.head(10).items():

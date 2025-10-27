@@ -69,10 +69,13 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
       };
 
       if (onScanAnalyzed) {
-        onScanAnalyzed({
-          ...fullReport.data,
-          explain_heatmap_b64: analyzeResponse.data.explain_heatmap_b64,
-        });
+        onScanAnalyzed(
+          {
+            ...fullReport.data,
+            explain_heatmap_b64: analyzeResponse.data.explain_heatmap_b64,
+          },
+          scanId
+        );
       }
 
       console.log(analyzeResponse);
@@ -97,8 +100,6 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
       </div>
 
       <p className={cl.dropzoneDescription}>
-
-
         Поддерживаемые форматы: ZIP-архивы с DICOM-сериями (.zip) и одиночные
         DICOM-файлы (.dcm, допускаются без расширения)
       </p>
@@ -130,7 +131,6 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
           <span>Пожалуйста, подождите, ваш файл загружается в модель</span>
         </div>
       )}
-
 
       <MyButton
         onClick={uploadAndAnalyze}

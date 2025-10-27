@@ -43,34 +43,23 @@ BEGIN
 END $$;
 
 -- ---------------------------------
--- Таблица исследований (один ZIP на запись)
+-- Таблица исследований
 -- ---------------------------------
 CREATE TABLE IF NOT EXISTS scans (
   id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   patient_id         UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
 
   description        TEXT,
-  file_name          TEXT  NOT NULL,             -- имя загруженного ZIP
-  file_bytes         BYTEA NOT NULL,             -- сам ZIP
+  file_name          TEXT  NOT NULL,
+  file_bytes         BYTEA NOT NULL,
+  study_uid          TEXT,
+  series_uid         TEXT,
 
-  -- ЕДИНЫЙ отчёт по ТЗ в JSON (массив строк-объектов по всем файлам внутри ZIP)
-  -- Строго ожидается массив вида:
-  -- [
-  --   {
-  --     "path_to_study": "cases/001/ct1.dcm",
-  --     "study_uid": "1.2.840....",
-  --     "series_uid": "1.2.840....",
-  --     "probability_of_pathology": 0.91,
-  --     "pathology": 1,
-  --     "processing_status": "Success",
-  --     "time_of_processing": 0.37
-  --   },
-  --   ...
-  -- ]
+
+
   report_json        JSONB NOT NULL DEFAULT '[]'::jsonb
                      CHECK (jsonb_typeof(report_json) = 'array'),
 
-  -- Готовый XLSX-отчёт по тем же данным (опционально)
   report_xlsx        BYTEA,
 
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),

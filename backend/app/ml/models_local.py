@@ -46,7 +46,7 @@ class BinaryClassifier(pl.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=1e-4)
-    
+
 def create_resnet_backbone():
     model = resnet18(weights=None)
     model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)

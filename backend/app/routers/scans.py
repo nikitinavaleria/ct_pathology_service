@@ -94,7 +94,7 @@ def create_router(db):
         if not exists:
             raise HTTPException(404, "Patient not found")
 
-        # 2) читаем файл «как есть»
+        # читаем файл «как есть»
         try:
             content = file.file.read()  # bytes
         except Exception:
@@ -103,7 +103,7 @@ def create_router(db):
         if not content:
             raise HTTPException(400, "Empty file")
 
-        # 3) оригинальное имя (без директорий), без принудительного .zip
+        # оригинальное имя (без директорий), без принудительного .zip
         orig_name = os.path.basename((file.filename or "").strip()) or "upload.bin"
 
         row = db.execute_returning(
@@ -178,7 +178,6 @@ def create_router(db):
 
             result = model_analyze(file_path=str(path), temp_dir=str(tmpdir_path)) # TODO тут модель
 
-        # сохраняем как раньше (но rows всегда длиной 1)
         report_row = result["db_row"]
         rows = [report_row]
         xlsx_bytes = _build_xlsx(rows)
@@ -192,6 +191,21 @@ def create_router(db):
             """,
             [Json(rows), xlsx_bytes, str(id)],
         )
+
+        study_uid = (report_row.get("study_uid") or "").strip()
+        series_uid = (report_row.get("series_uid") or "").strip()
+
+        if study_uid and series_uid:
+            db.execute(
+                """
+                UPDATE scans
+                   SET study_uid = %s,
+                       series_uid = %s,
+                       updated_at = NOW()
+                 WHERE id = %s
+                """,
+                [study_uid, series_uid, str(id)],
+            )
 
         has_pathology_any = (report_row["processing_status"].startswith("Success") and report_row["pathology"] == 1)
 

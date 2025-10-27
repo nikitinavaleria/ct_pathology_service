@@ -8,6 +8,7 @@ import Footer from "../components/Footer";
 import PatientCard from "../components/ui/PatientCard/PatientCard";
 import PatientForm from "../components/ui/form/PatientForm";
 import { createPatient, getPatient, getPatients } from "../api/api";
+import { exportToCSV } from "../utils/ExportCSV";
 
 const AddScanPage = () => {
   const [isFormVisible, setIsFormVisible] = useState(false);
@@ -83,13 +84,16 @@ const AddScanPage = () => {
           onSelect={handlePatientSelect}
         />
 
-        {!patient && (
-          <MyButton
-            className="page__header-buttons"
-            onClick={() => setIsFormVisible((prev) => !prev)}>
-            {isFormVisible ? "Скрыть форму" : "Новый пациент"}
-          </MyButton>
-        )}
+        <div className="page__header-buttons-container">
+          {!patient && (
+            <MyButton
+              className="page__header-buttons"
+              onClick={() => setIsFormVisible((prev) => !prev)}>
+              {isFormVisible ? "Скрыть форму" : "Новый пациент"}
+            </MyButton>
+          )}
+          <MyButton onClick={() => navigate("/")}>На главную</MyButton>
+        </div>
       </header>
 
       <main className="page__body">
@@ -130,14 +134,16 @@ const AddScanPage = () => {
               {report.rows?.map((row, index) => (
                 <li key={index} className="patient-report__item">
                   <div className="patient-report__probability">
-                    <strong>Вероятность патологии:</strong>{" "}
+                    <strong>Вероятность наличия патологии:</strong>
                     <span
                       className={
                         row.prob_pathology && row.prob_pathology > 0.5
                           ? "high-probability"
                           : "low-probability"
                       }>
-                      {row.prob_pathology ? row.prob_pathology.toFixed(2) : "Н/Д"}
+                      {row.prob_pathology
+                        ? row.prob_pathology.toFixed(2)
+                        : "Н/Д"}
                     </span>
                   </div>
                   {row.pathology_cls_ru && (
@@ -150,16 +156,13 @@ const AddScanPage = () => {
                       <strong>Статус обработки:</strong> {row.processing_status}
                     </div>
                   )}
-                  {row.pathology_cls_count > 0 && (
-                    <div className="patient-report__count">
-                      <strong>Количество классов патологий:</strong>{" "}
-                      {row.pathology_cls_count}
-                    </div>
-                  )}
+
                   {row.pathology_cls_avg_prob && (
                     <div className="patient-report__avg-prob">
-                      <strong>Средняя вероятность:</strong>{" "}
-                      {row.pathology_cls_avg_prob ? row.pathology_cls_avg_prob.toFixed(2) : "Н/Д"}
+                      <strong>Вероятность патологии</strong>{" "}
+                      {row.pathology_cls_avg_prob
+                        ? row.pathology_cls_avg_prob.toFixed(2)
+                        : "Н/Д"}
                     </div>
                   )}
                 </li>
@@ -183,6 +186,14 @@ const AddScanPage = () => {
                 </h4>
               </div>
             )}
+
+            <MyButton
+              style={{ textWrap: "nowrap" }}
+              onClick={() =>
+                exportToCSV(report, `отчет_${patient?.id || "scan"}`)
+              }>
+              Скачать отчёт
+            </MyButton>
           </div>
         )}
 
