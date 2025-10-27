@@ -6,7 +6,6 @@ IMG_SIZE = 512
 BACKBONE_OUT_DIM = 512
 num_frames = 12
 step = 1
-# MODEL_DIR = Path('./models/')
 MODEL_DIR = Path(str((Path(__file__).resolve().parents[2] / "models")))
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MIN_FRAMES_SELECTED = 64

@@ -62,6 +62,28 @@ class DB_Connector:
         row = self.fetch_one(sql, params)
         return None if row is None else next(iter(row.values()))
 
+    def execute(self, sql: str, params: Optional[Sequence[Any]] = None) -> int:
+        """DDL/DML без RETURNING. Возвращает количество затронутых строк."""
+
+        def _do():
+            with self._lock:
+                conn = self._ensure_conn()
+                with conn.cursor() as cur:
+                    ph = sql.count("%s")
+                    plen = len(params or ())
+                    print(f"[DBDBG] placeholders={ph} params={plen}")
+                    if plen != ph:
+                        print("[DBDBG] SQL:\n", sql)
+                        print("[DBDBG] PARAM TYPES:", [type(x).__name__ for x in (params or ())])
+                        # осторожно с длинными данными (xlsx), обрежем вывод
+                        print("[DBDBG] PARAM VALUES:", [str(x)[:120] for x in (params or ())])
+                    cur.execute(sql, params or ())
+                    affected = cur.rowcount
+                conn.commit()
+                return affected
+
+        return self._with_retry(_do)
+
     def execute_returning(self, sql: str, params: Optional[Sequence[Any]] = None) -> Optional[dict]:
         """Возвращает первую строку как dict (или None)"""
         def _do():

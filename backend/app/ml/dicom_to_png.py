@@ -7,7 +7,6 @@ import pandas as pd
 from tqdm import tqdm
 from collections import defaultdict
 
-
 def apply_adaptive_window(pixel_array: np.ndarray) -> np.ndarray:
     p2, p98 = np.percentile(pixel_array, (2, 98))
     window_center = (p2 + p98) / 2.0
