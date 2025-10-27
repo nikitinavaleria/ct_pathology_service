@@ -142,7 +142,7 @@ def predict_patient_with_gradcam(
         binary_classifier,
         ae_model,
         thresholds,
-        platt_calibrator,  # ← добавлен калибратор
+        platt_calibrator,
         device,
         img_size=IMG_SIZE
 ):

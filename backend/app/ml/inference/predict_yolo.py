@@ -3,7 +3,7 @@ from pathlib import Path
 from collections import defaultdict
 import numpy as np
 import pandas as pd
-from ultralytics import YOLO
+
 
 def _as_float_scalar(x) -> float:
 
@@ -33,16 +33,8 @@ def _as_float_scalar(x) -> float:
     except Exception:
         return float("nan")
 
-def classify_pathology_with_yolo(image_paths: list[str], models_root: Path, imgsz: int = 512, conf: float = 0.5):
-    weights = Path(__file__).resolve().parents[2] / "models/mnogoclass.pt"
-    if not weights.exists():
-        return {"error": f"YOLO weights not found at {weights}"}
-
-    try:
-        model = YOLO(str(weights))
-        results = model.predict(source=image_paths, imgsz=imgsz, conf=conf)
-    except Exception as e:
-        return {"error": f'yolo inference failed: {e}'}
+def classify_pathology_with_yolo(image_paths: list[str], model, imgsz: int = 512, conf: float = 0.5):
+    results = model.predict(source=image_paths, imgsz=imgsz, conf=conf)
 
     class_stats = defaultdict(list)
     per_image = []

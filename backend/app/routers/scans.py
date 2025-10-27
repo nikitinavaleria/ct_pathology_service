@@ -1,14 +1,14 @@
-from typing import Dict, List, Optional
+from typing import Optional
 from uuid import UUID
 import os
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 import tempfile
 from pathlib import Path
 
-from backend.app.ml.general_models_func import analyze_vlad, analyze_yolo
+from backend.app.ml.services.general_models_func import analyze_vlad, analyze_yolo
 from backend.app.schemas.schemas import ListResponse, ScanOut, ScanUpdate
 
-def create_router(db):
+def create_router(db, binary_classifier, ae_model, thresholds, img_size, platt_calibrator, model_yolo):
     router = APIRouter(prefix="/scans", tags=["scans"])
 
     @router.get("", response_model=ListResponse)
@@ -119,7 +119,7 @@ def create_router(db):
         return Response(content=row["file_bytes"], media_type="application/octet-stream", headers=headers)
 
     @router.post("/{id}/vlad_analyze")
-    def analyze_scan(id: UUID):
+    def analyze_scan_vlad(id: UUID):
         row = db.fetch_one("SELECT file_name, file_bytes FROM scans WHERE id=%s", [str(id)])
         if not row:
             raise HTTPException(404, "Scan not found")
@@ -132,7 +132,7 @@ def create_router(db):
                 tmpdir_path = Path(tmpdir)
                 path = tmpdir_path / Path(file_name).name
                 path.write_bytes(file_bytes)
-                result = analyze_vlad(file_path=str(path), temp_dir=str(tmpdir_path))
+                result = analyze_vlad(file_path=str(path), temp_dir=str(tmpdir_path), binary_classifier=binary_classifier, ae_model=ae_model, thresholds=thresholds, img_size=img_size, platt_calibrator=platt_calibrator)
         except Exception as e:
             raise HTTPException(status_code=500, detail="Model analysis failed") from e
 
@@ -162,7 +162,7 @@ def create_router(db):
         }
 
     @router.post("/{id}/yolo_analyze")
-    def analyze_scan(id: UUID):
+    def analyze_scan_yolo(id: UUID):
         row = db.fetch_one("SELECT file_name, file_bytes FROM scans WHERE id=%s", [str(id)])
         if not row:
             raise HTTPException(404, "Scan not found")
@@ -175,7 +175,7 @@ def create_router(db):
             tmpdir_path = Path(tmpdir)
             path = tmpdir_path / Path(file_name).name
             path.write_bytes(file_bytes)
-            result = analyze_yolo(file_path=str(path), temp_dir=str(tmpdir_path))
+            result = analyze_yolo(file_path=str(path), temp_dir=str(tmpdir_path), model=model_yolo)
 
             db.execute(
                 """UPDATE scans

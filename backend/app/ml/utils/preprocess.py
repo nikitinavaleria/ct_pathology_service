@@ -1,10 +1,9 @@
 from pathlib import Path
 import shutil
 import pandas as pd
-import numpy as np
 import zipfile
 
-from backend.app.ml.dicom_to_png import process_dicom_to_png
+from backend.app.ml.utils.dicom_to_png import process_dicom_to_png
 from backend.app.ml.config import num_frames, step
 
 
