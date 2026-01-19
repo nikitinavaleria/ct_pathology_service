@@ -17,7 +17,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 API_PREFIX = os.getenv("API_PREFIX", "/api")
 app = FastAPI(title="CT Pathology Service")
 
-config: Config = load_config('.env')
+config: Config = load_config()
 
 conn_info = {
     "host": config.db.host,
