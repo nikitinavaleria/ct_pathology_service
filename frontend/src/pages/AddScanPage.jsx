@@ -137,7 +137,9 @@ const AddScanPage = () => {
                           ? "high-probability"
                           : "low-probability"
                       }>
-                      {row.prob_pathology ? row.prob_pathology.toFixed(2) : "Н/Д"}
+                      {row.prob_pathology
+                        ? row.prob_pathology.toFixed(2)
+                        : "Н/Д"}
                     </span>
                   </div>
                   {row.pathology_cls_ru && (
@@ -159,30 +161,14 @@ const AddScanPage = () => {
                   {row.pathology_cls_avg_prob && (
                     <div className="patient-report__avg-prob">
                       <strong>Средняя вероятность:</strong>{" "}
-                      {row.pathology_cls_avg_prob ? row.pathology_cls_avg_prob.toFixed(2) : "Н/Д"}
+                      {row.pathology_cls_avg_prob
+                        ? row.pathology_cls_avg_prob.toFixed(2)
+                        : "Н/Д"}
                     </div>
                   )}
                 </li>
               ))}
             </ul>
-
-            {report?.explain_heatmap_b64 && (
-              <div>
-                <img
-                  src={`data:image/png;base64,${report.explain_heatmap_b64}`}
-                  alt="Heatmap"
-                  style={{
-                    maxWidth: "400px",
-                    display: "block",
-                    marginTop: "10px",
-                  }}
-                />
-                <h4>
-                  Тепловая карта среза с подсветкой областей, которые наиболее
-                  сильно повлияли на решение модели
-                </h4>
-              </div>
-            )}
           </div>
         )}
 

@@ -98,16 +98,6 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                     </li>
                   ))}
                 </ul>
-
-                {report.explain_heatmap_b64 && (
-                  <div className="scan-details__heatmap">
-                    <h4>Тепловая карта</h4>
-                    <img
-                      src={`data:image/png;base64,${report.explain_heatmap_b64}`}
-                      alt="Heatmap"
-                    />
-                  </div>
-                )}
               </div>
             )}
 
