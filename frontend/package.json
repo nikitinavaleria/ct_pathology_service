@@ -10,6 +10,7 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.12.2",
     "clsx": "^2.1.1",
+    "file-saver": "^2.0.5",
     "npm": "^11.6.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -20,7 +21,8 @@
     "sass": "^1.93.0",
     "scss": "^0.2.4",
     "start": "^5.1.0",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "start": "react-scripts start",

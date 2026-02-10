@@ -52,6 +52,14 @@
   gap: 20px;
   text-wrap: nowrap;
 }
+.page__header-buttons-container {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 20px;
+  text-wrap: nowrap;
+}
 
 .page__body {
   min-width: 100%;

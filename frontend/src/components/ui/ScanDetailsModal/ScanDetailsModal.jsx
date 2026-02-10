@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { getScan, getScanReport } from "../../../api/api";
 import MyButton from "../MyButton/MyButton";
 import "./ScanDetailsModal.css";
+import { exportToCSV } from "../../../utils/ExportCSV";
 
 const ScanDetailsModal = ({ scanId, onClose }) => {
   const [scan, setScan] = useState(null);
@@ -55,22 +56,31 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
           <div className="modal-error">{error}</div>
         ) : scan ? (
           <div className="scan-details">
-            <div className="scan-details__header">
-              <h3>
-                Исследование от{" "}
-                {new Date(scan.created_at).toLocaleDateString("ru-RU")}
-              </h3>
-            </div>
-
-            {report && (
-              <div className="scan-details__report">
-                <h4>Отчёт по исследованию</h4>
-                <p>
-                  Потенциальная патология:{" "}
-                  {report.summary?.has_pathology_any
-                    ? "Обнаружена"
-                    : "Не обнаружена"}
-                </p>
+            <div
+              className="scan-details__info-wrapper"
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}>
+              <div className="scan-details-info">
+                {" "}
+                <div className="scan-details__header">
+                  <h3>
+                    Исследование от{" "}
+                    {new Date(scan.created_at).toLocaleDateString("ru-RU")}
+                  </h3>
+                </div>
+                {report && (
+                  <div className="scan-details__report">
+                    <h4>Отчёт по исследованию</h4>
+                    <p>
+                      Потенциальная патология:{" "}
+                      {report.summary?.has_pathology_any
+                        ? "Обнаружена"
+                        : "Не обнаружена"}
+                    </p>
 
                 <ul>
                   {report.rows?.map((row, i) => (
@@ -99,14 +109,14 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                   ))}
                 </ul>
               </div>
-            )}
-
-            <div className="scan-details__actions">
               <MyButton
-                onClick={onClose}
-                style={{ background: "#2196F3", color: "white" }}>
-                Закрыть
+                style={{ textWrap: "nowrap" }}
+                onClick={() => exportToCSV(report, `отчет_${scanId}`)}>
+                Скачать отчёт
               </MyButton>
+            </div>
+            <div className="scan-details__actions">
+              <MyButton onClick={onClose}>Закрыть</MyButton>
             </div>
           </div>
         ) : (

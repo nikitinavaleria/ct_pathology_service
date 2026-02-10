@@ -1,7 +1,3 @@
--- ===============================
--- CT Pathology Service — schema (simplified)
--- ===============================
-
 -- UUID генератор
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -43,36 +39,23 @@ BEGIN
 END $$;
 
 -- ---------------------------------
--- Таблица исследований (один ZIP на запись)
+-- Таблица исследований
 -- ---------------------------------
 CREATE TABLE IF NOT EXISTS scans (
   id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   patient_id         UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
 
   description        TEXT,
-  file_name          TEXT  NOT NULL,             -- имя загруженного ZIP
-  file_bytes         BYTEA NOT NULL,             -- сам ZIP
-
-  -- ЕДИНЫЙ отчёт по ТЗ в JSON (массив строк-объектов по всем файлам внутри ZIP)
-  -- Строго ожидается массив вида:
-  -- [
-  --   {
-  --     "path_to_study": "cases/001/ct1.dcm",
-  --     "study_uid": "1.2.840....",
-  --     "series_uid": "1.2.840....",
-  --     "probability_of_pathology": 0.91,
-  --     "pathology": 1,
-  --     "processing_status": "Success",
-  --     "time_of_processing": 0.37
-  --   },
-  --   ...
-  -- ]
-  report_json        JSONB NOT NULL DEFAULT '[]'::jsonb
-                     CHECK (jsonb_typeof(report_json) = 'array'),
-
-  -- Готовый XLSX-отчёт по тем же данным (опционально)
-  report_xlsx        BYTEA,
-
+  file_name          TEXT  NOT NULL,
+  file_bytes         BYTEA NOT NULL,
+  study_uid          TEXT,
+  series_uid         TEXT,
+  has_pathology      INT,
+  pathology_prob     REAL,
+  pathology_en       TEXT,
+  pathology_ru       TEXT,
+  pathology_count    TEXT,
+  pathology_avg_prob TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

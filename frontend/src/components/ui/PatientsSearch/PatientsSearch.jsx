@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from "react";
 import cl from "./PatientsSearch.module.scss";
 
-const PatientsSearch = ({
-  value, // для фильтрации на Dashboard
-  onChange, // для фильтрации на Dashboard
-  onSelect, // для выбора пациента на AddScanPage
-  patients, // массив пациентов
-}) => {
+const PatientsSearch = ({ value, onChange, onSelect, patients }) => {
   const [results, setResults] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [internalQuery, setInternalQuery] = useState("");
