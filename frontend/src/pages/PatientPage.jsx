@@ -32,7 +32,8 @@ const PatientPage = () => {
         const scansResponse = await getScans({ patient_id: id });
         const fetchedScans = Array.isArray(scansResponse.data)
           ? scansResponse.data
-          : scansResponse.data?.items ?? [];
+          : (scansResponse.data?.items ?? []);
+
         setScans(fetchedScans);
         setLoading(false);
       } catch (err) {
@@ -49,13 +50,13 @@ const PatientPage = () => {
     const fetchReports = async () => {
       try {
         const reports = await Promise.all(
-          scans.map((s) => getScanReport(s.id))
+          scans.map((s) => getScanReport(s.id)),
         );
         setScans((prev) =>
           prev.map((scan, i) => ({
             ...scan,
             report: reports[i].data,
-          }))
+          })),
         );
       } catch (err) {
         console.error("Ошибка при загрузке репортов:", err);
@@ -220,31 +221,6 @@ const PatientPage = () => {
                   </li>
                 ))}
               </ul>
-
-              {newScanReport.explain_heatmap_b64 && (
-                <div>
-                  <img
-                    src={`data:image/png;base64,${newScanReport.explain_heatmap_b64}`}
-                    alt="Heatmap"
-                    style={{
-                      maxWidth: "400px",
-                      display: "block",
-                      margin: "auto",
-                    }}
-                  />
-                  <h4>
-                    Тепловая карта среза с подсветкой областей, которые наиболее
-                    сильно повлияли на решение модели
-                  </h4>
-                  <MyButton
-                    style={{ marginLeft: "30px", whiteSpace: "nowrap" }}
-                    onClick={() =>
-                      exportToCSV(newScanReport, `отчет_${newScanId}`)
-                    }>
-                    Скачать отчёт
-                  </MyButton>
-                </div>
-              )}
             </div>
           )}
 

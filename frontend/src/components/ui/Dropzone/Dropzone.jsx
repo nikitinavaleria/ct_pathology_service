@@ -64,18 +64,15 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
 
       const fullReport = {
         ...reportFromReport,
-        explain_heatmap_b64: reportFromAnalyze.explain_heatmap_b64,
+        mask_path: reportFromAnalyze.mask_path,
         explain_mask_b64: reportFromAnalyze.explain_mask_b64,
       };
 
       if (onScanAnalyzed) {
-        onScanAnalyzed(
-          {
-            ...fullReport.data,
-            explain_heatmap_b64: analyzeResponse.data.explain_heatmap_b64,
-          },
-          scanId
-        );
+        onScanAnalyzed({
+          ...fullReport.data,
+          mask_path: analyzeResponse.data.mask_path,
+        });
       }
 
       console.log(analyzeResponse);

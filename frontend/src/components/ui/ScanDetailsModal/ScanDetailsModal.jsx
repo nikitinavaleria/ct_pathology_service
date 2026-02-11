@@ -82,38 +82,32 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                         : "Не обнаружена"}
                     </p>
 
-                    <ul>
-                      {report.rows?.map((row, i) => (
-                        <li key={i}>
-                          <strong>Вероятность наличия патологии</strong>{" "}
-                          {row.prob_pathology.toFixed(2)} <br />
-                          {row.pathology_cls_ru && (
-                            <>
-                              <strong>Тип:</strong> {row.pathology_cls_ru}
-                              <br />
-                            </>
-                          )}
-                          {row.pathology_cls_avg_prob && (
-                            <>
-                              <strong>Вероятность патологии</strong>{" "}
-                              {row.pathology_cls_avg_prob.toFixed(2)}
-                            </>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-
-                    {report.explain_heatmap_b64 && (
-                      <div className="scan-details__heatmap">
-                        <h4>Тепловая карта</h4>
-                        <img
-                          src={`data:image/png;base64,${report.explain_heatmap_b64}`}
-                          alt="Heatmap"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
+                <ul>
+                  {report.rows?.map((row, i) => (
+                    <li key={i}>
+                      <strong>Вероятность:</strong>{" "}
+                      {row.prob_pathology.toFixed(2)} <br />
+                      {row.pathology_cls_ru && (
+                        <>
+                          <strong>Тип:</strong> {row.pathology_cls_ru}
+                          <br />
+                        </>
+                      )}
+                      {row.pathology_cls_count > 0 && (
+                        <>
+                          <strong>Классов:</strong> {row.pathology_cls_count}
+                          <br />
+                        </>
+                      )}
+                      {row.pathology_cls_avg_prob && (
+                        <>
+                          <strong>Средняя вероятность:</strong>{" "}
+                          {row.pathology_cls_avg_prob.toFixed(2)}
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </div>
               <MyButton
                 style={{ textWrap: "nowrap" }}

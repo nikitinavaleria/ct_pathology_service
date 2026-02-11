@@ -159,7 +159,7 @@ const AddScanPage = () => {
 
                   {row.pathology_cls_avg_prob && (
                     <div className="patient-report__avg-prob">
-                      <strong>Вероятность патологии</strong>{" "}
+                      <strong>Средняя вероятность:</strong>{" "}
                       {row.pathology_cls_avg_prob
                         ? row.pathology_cls_avg_prob.toFixed(2)
                         : "Н/Д"}
@@ -168,32 +168,6 @@ const AddScanPage = () => {
                 </li>
               ))}
             </ul>
-
-            {report?.explain_heatmap_b64 && (
-              <div>
-                <img
-                  src={`data:image/png;base64,${report.explain_heatmap_b64}`}
-                  alt="Heatmap"
-                  style={{
-                    maxWidth: "400px",
-                    display: "block",
-                    marginTop: "10px",
-                  }}
-                />
-                <h4>
-                  Тепловая карта среза с подсветкой областей, которые наиболее
-                  сильно повлияли на решение модели
-                </h4>
-              </div>
-            )}
-
-            <MyButton
-              style={{ textWrap: "nowrap" }}
-              onClick={() =>
-                exportToCSV(report, `отчет_${patient?.id || "scan"}`)
-              }>
-              Скачать отчёт
-            </MyButton>
           </div>
         )}
 
