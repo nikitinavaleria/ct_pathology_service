@@ -63,18 +63,20 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                 flexDirection: "row",
                 justifyContent: "space-between",
                 alignItems: "center",
-              }}>
+              }}
+            >
               <div className="scan-details-info">
-                {" "}
                 <div className="scan-details__header">
                   <h3>
                     Исследование от{" "}
                     {new Date(scan.created_at).toLocaleDateString("ru-RU")}
                   </h3>
                 </div>
+
                 {report && (
                   <div className="scan-details__report">
                     <h4>Отчёт по исследованию</h4>
+
                     <p>
                       Потенциальная патология:{" "}
                       {report.summary?.has_pathology_any
@@ -82,39 +84,47 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                         : "Не обнаружена"}
                     </p>
 
-                <ul>
-                  {report.rows?.map((row, i) => (
-                    <li key={i}>
-                      <strong>Вероятность:</strong>{" "}
-                      {row.prob_pathology.toFixed(2)} <br />
-                      {row.pathology_cls_ru && (
-                        <>
-                          <strong>Тип:</strong> {row.pathology_cls_ru}
-                          <br />
-                        </>
-                      )}
-                      {row.pathology_cls_count > 0 && (
-                        <>
-                          <strong>Классов:</strong> {row.pathology_cls_count}
-                          <br />
-                        </>
-                      )}
-                      {row.pathology_cls_avg_prob && (
-                        <>
-                          <strong>Средняя вероятность:</strong>{" "}
-                          {row.pathology_cls_avg_prob.toFixed(2)}
-                        </>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                    <ul>
+                      {report.rows?.map((row, i) => (
+                        <li key={i}>
+                          <strong>Вероятность:</strong>{" "}
+                          {row.prob_pathology.toFixed(2)} <br />
+
+                          {row.pathology_cls_ru && (
+                            <>
+                              <strong>Тип:</strong> {row.pathology_cls_ru}
+                              <br />
+                            </>
+                          )}
+
+                          {row.pathology_cls_count > 0 && (
+                            <>
+                              <strong>Классов:</strong> {row.pathology_cls_count}
+                              <br />
+                            </>
+                          )}
+
+                          {row.pathology_cls_avg_prob && (
+                            <>
+                              <strong>Средняя вероятность:</strong>{" "}
+                              {row.pathology_cls_avg_prob.toFixed(2)}
+                            </>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
+
               <MyButton
                 style={{ textWrap: "nowrap" }}
-                onClick={() => exportToCSV(report, `отчет_${scanId}`)}>
+                onClick={() => exportToCSV(report, `отчет_${scanId}`)}
+              >
                 Скачать отчёт
               </MyButton>
             </div>
+
             <div className="scan-details__actions">
               <MyButton onClick={onClose}>Закрыть</MyButton>
             </div>
