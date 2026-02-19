@@ -6,6 +6,7 @@ import MyButton from "../components/ui/MyButton/MyButton";
 import Dropzone from "../components/ui/Dropzone/Dropzone";
 import ScanDetailsModal from "../components/ui/ScanDetailsModal/ScanDetailsModal";
 import "../styles/PatientPage.css";
+import { exportToCSV } from "../utils/ExportCSV";
 
 const PatientPage = () => {
   const { id } = useParams();
@@ -15,7 +16,9 @@ const PatientPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showDropzone, setShowDropzone] = useState(false);
-  const [scanReport, setScanReport] = useState(null);
+
+  const [newScanReport, setNewScanReport] = useState(null);
+  const [newScanId, setNewScanId] = useState(null);
   const [selectedScanId, setSelectedScanId] = useState(null);
 
   const reportRef = useRef(null);
@@ -62,7 +65,6 @@ const PatientPage = () => {
         const reports = await Promise.all(
           scansWithoutReport.map((s) => getScanReport(s.id)),
         );
-
         setScans((prev) =>
           prev.map((scan) => {
             const index = scansWithoutReport.findIndex((s) => s.id === scan.id);
@@ -228,7 +230,7 @@ const PatientPage = () => {
               <h3>Отчёт по исследованию</h3>
               <p>
                 Потенциальная патология:{" "}
-                {scanReport.summary?.has_pathology_any
+                {newScanReport.summary?.has_pathology_any
                   ? "Обнаружена"
                   : "Не обнаружена"}
               </p>
@@ -241,7 +243,8 @@ const PatientPage = () => {
             onScanAnalyzed={handleScanAnalyzed}
             onRemovePatient={() => {
               setShowDropzone(false);
-              setScanReport(null);
+              setNewScanReport(null);
+              setNewScanId(null);
             }}
           />
         </div>

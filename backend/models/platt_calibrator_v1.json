@@ -1,0 +1,8 @@
+{
+  "type": "logistic_regression_1d_platt",
+  "schema_version": 1,
+  "coef": [5.850918581552519],
+  "intercept": [-3.7205654613772237],
+  "classes": [0, 1],
+  "note": "Converted from sklearn LogisticRegression via dill to JSON. Use sigmoid(coef*x + intercept)."
+}

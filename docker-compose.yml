@@ -1,9 +1,14 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16
     container_name: ctpathology-db
+    env_file:
+      - .env
+    ports:
+      - "${DB_EXPOSE_PORT}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data:rw
+      - ./database/create_table.sql:/docker-entrypoint-initdb.d/01_create_table.sql:ro
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME}
@@ -11,11 +16,6 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       TZ: "Europe/Amsterdam"
       PGTZ: "Europe/Amsterdam"
-    ports:
-      - "${DB_PORT}:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data:rw
-      - ./database/create_table.sql:/docker-entrypoint-initdb.d/01_create_table.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -45,11 +45,14 @@ services:
       MKL_NUM_THREADS: "1"
       VECLIB_MAXIMUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
+    env_file:
+      - .env
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "${API_PORT}:8000"
+      - "8000:8000"
+    command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--access-log"]
     networks: [backend]
 
   frontend:
@@ -58,7 +61,7 @@ services:
       dockerfile: Dockerfile
     environment:
       API_PREFIX: "/api"
-      API_HOST: "ctpathology-api"    # имя контейнера бэка
+      API_HOST: "api"
       API_PORT: "8000"
     ports:
       - "${FRONTEND_PORT:-3000}:80"

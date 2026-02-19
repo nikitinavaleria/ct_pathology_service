@@ -1,54 +1,15 @@
-import io
-import time
-import zipfile
-from typing import Dict, List, Optional
+from typing import Optional
 from uuid import UUID
 import os
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
-from openpyxl import Workbook
-from psycopg.types.json import Json
 import tempfile
 from pathlib import Path
 
-from backend.app.ml.pathology_model import analyze as model_analyze
+from backend.app.ml.services.general_models_func import analyze_vlad, analyze_yolo
 from backend.app.schemas.schemas import ListResponse, ScanOut, ScanUpdate
 
-def create_router(db):
+def create_router(db, binary_classifier, ae_model, thresholds, img_size, platt_calibrator, model_yolo):
     router = APIRouter(prefix="/scans", tags=["scans"])
-
-    # ---------- helpers ----------
-
-    def _build_xlsx(rows: List[Dict]) -> bytes:
-        """Собираем XLSX-таблицу ровно с требуемыми колонками."""
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Report"
-        ws.append(
-            [
-                "path_to_study",
-                "study_uid",
-                "series_uid",
-                "probability_of_pathology",
-                "pathology",
-                "processing_status",
-                "time_of_processing",
-            ]
-        )
-        for r in rows:
-            ws.append(
-                [
-                    r.get("path_to_study", ""),
-                    r.get("study_uid", ""),
-                    r.get("series_uid", ""),
-                    float(r.get("probability_of_pathology", 0.0)),
-                    int(r.get("pathology", 0)),
-                    r.get("processing_status", "Failure"),
-                    float(r.get("time_of_processing", 0.0)),
-                ]
-            )
-        bio = io.BytesIO()
-        wb.save(bio)
-        return bio.getvalue()
 
     @router.get("", response_model=ListResponse)
     def list_scans(
@@ -89,21 +50,18 @@ def create_router(db):
         file: UploadFile = File(...),
         description: Optional[str] = Form(None),
     ):
-        # пациент должен существовать
         exists = db.fetch_one("SELECT 1 FROM patients WHERE id = %s", [str(patient_id)])
         if not exists:
             raise HTTPException(404, "Patient not found")
 
-        # 2) читаем файл «как есть»
         try:
-            content = file.file.read()  # bytes
+            content = file.file.read()
         except Exception:
             raise HTTPException(400, "Failed to read uploaded file")
 
         if not content:
             raise HTTPException(400, "Empty file")
 
-        # 3) оригинальное имя (без директорий), без принудительного .zip
         orig_name = os.path.basename((file.filename or "").strip()) or "upload.bin"
 
         row = db.execute_returning(
@@ -119,7 +77,6 @@ def create_router(db):
     def update_scan(id: UUID, payload: ScanUpdate):
         data = payload.model_dump(exclude_unset=True)
         if not data:
-            # отдаём текущие данные, если нечего менять
             row = db.fetch_one(
                 """SELECT id, patient_id, description, file_name, created_at, updated_at
                    FROM scans WHERE id = %s
@@ -161,8 +118,8 @@ def create_router(db):
         headers = {"Content-Disposition": f'attachment; filename="{row["file_name"]}"'}
         return Response(content=row["file_bytes"], media_type="application/octet-stream", headers=headers)
 
-    @router.post("/{id}/analyze")
-    def analyze_scan(id: UUID):
+    @router.post("/{id}/vlad_analyze")
+    def analyze_scan_vlad(id: UUID):
         row = db.fetch_one("SELECT file_name, file_bytes FROM scans WHERE id=%s", [str(id)])
         if not row:
             raise HTTPException(404, "Scan not found")
@@ -170,47 +127,80 @@ def create_router(db):
         file_name: str = row["file_name"]
         file_bytes: bytes = row["file_bytes"]
 
+        try:
+            with tempfile.TemporaryDirectory(prefix="scan_tmp_", dir="/tmp") as tmpdir:
+                tmpdir_path = Path(tmpdir)
+                path = tmpdir_path / Path(file_name).name
+                path.write_bytes(file_bytes)
+                result = analyze_vlad(file_path=str(path), temp_dir=str(tmpdir_path), binary_classifier=binary_classifier, ae_model=ae_model, thresholds=thresholds, img_size=img_size, platt_calibrator=platt_calibrator)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail="Model analysis failed") from e
+
+
+        study_uid = result["study_uid"]
+        series_uid = result["series_uid"]
+        pathology = result["pathology"]
+        pathology_prob = result["prob_pathology"]
+
+        db.execute(
+                """UPDATE scans
+                   SET study_uid = %s,
+                       series_uid = %s,
+                       has_pathology = %s,
+                       pathology_prob = %s,
+                       updated_at = NOW()
+                 WHERE id = %s
+                """,
+                [study_uid, series_uid, pathology, pathology_prob, str(id)]
+            )
+
+        return {
+            "study_uid": study_uid,
+            "series_uid": series_uid,
+            "pathology": pathology,
+            "pathology_prob": pathology_prob
+        }
+
+    @router.post("/{id}/yolo_analyze")
+    def analyze_scan_yolo(id: UUID):
+        row = db.fetch_one("SELECT file_name, file_bytes FROM scans WHERE id=%s", [str(id)])
+        if not row:
+            raise HTTPException(404, "Scan not found")
+
+        file_name: str = row["file_name"]
+        file_bytes: bytes = row["file_bytes"]
+
+
         with tempfile.TemporaryDirectory(prefix="scan_tmp_", dir="/tmp") as tmpdir:
             tmpdir_path = Path(tmpdir)
             path = tmpdir_path / Path(file_name).name
             path.write_bytes(file_bytes)
+            result = analyze_yolo(file_path=str(path), temp_dir=str(tmpdir_path), model=model_yolo)
 
+            db.execute(
+                """UPDATE scans
+                   SET pathology_en = %s,
+                       pathology_ru = %s,
+                       pathology_count = %s,
+                       pathology_avg_prob = %s,
+                       updated_at = NOW()
+                 WHERE id = %s
+                """,
+                [result["pathology_en"], result["pathology_ru"], result["pathology_count"], result["pathology_avg_prob"], str(id)]
+            )
 
-            result = model_analyze(file_path=str(path), temp_dir=str(tmpdir_path)) # TODO тут модель
-
-        # сохраняем как раньше (но rows всегда длиной 1)
-        report_row = result["db_row"]
-        rows = [report_row]
-        xlsx_bytes = _build_xlsx(rows)
-
-        db.execute(
-            """UPDATE scans
-               SET report_json=%s,
-                   report_xlsx=%s,
-                   updated_at=NOW()
-             WHERE id=%s
-            """,
-            [Json(rows), xlsx_bytes, str(id)],
-        )
-
-        has_pathology_any = (report_row["processing_status"].startswith("Success") and report_row["pathology"] == 1)
-
-        return {
-            "ok": True,
-            "files_processed": 1,
-            "has_pathology_any": has_pathology_any,
-            "explain_heatmap_b64": result.get("explain_heatmap_b64"),
-            "explain_mask_b64": result.get("explain_mask_b64"),
-        }
+            return {
+                "pathology_en": result["pathology_en"],
+                "pathology_ru": result["pathology_ru"],
+                "pathology_count": result["pathology_count"],
+                "pathology_avg_prob": result["pathology_avg_prob"]
+            }
 
     @router.get("/{id}/report")
     def scan_report(id: UUID):
-        row = db.fetch_one("SELECT report_json FROM scans WHERE id=%s", [str(id)])
+        row = db.fetch_one("SELECT scans.study_uid, scans.series_uid, scans.has_pathology, scans.pathology_prob, scans.pathology_en, scans.pathology_ru, scans.pathology_count, scans.pathology_avg_prob FROM scans WHERE id=%s", [str(id)])
         if not row:
             raise HTTPException(404, "Scan not found")
-
-        rows = row["report_json"] or []
-        has_pathology_any = any((int(r.get("pathology", 0)) == 1) and (r.get("processing_status") == "Success") for r in rows)
-        return {"rows": rows, "summary": {"has_pathology_any": has_pathology_any}}
+        return row
 
     return router
