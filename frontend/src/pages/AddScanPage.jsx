@@ -59,16 +59,10 @@ const AddScanPage = () => {
     }
   };
 
-  const handleScanAnalyzed = (scanReport) => {
-    setReport(scanReport);
-    if (scanReport) {
-      setTimeout(() => {
-        reportRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      }, 300);
-    }
+  const handleScanAnalyzed = (data) => {
+    if (!data) return;
+
+    setReport(data);
   };
 
   return (
@@ -117,18 +111,22 @@ const AddScanPage = () => {
         )}
 
         {report && (
-          <div className="patient-report" ref={reportRef}>
+          <div
+            className="patient-report"
+            ref={reportRef}>
             <h3>Отчёт по исследованию</h3>
             <p>
               Потенциальная патология:{" "}
-              {report.summary?.has_pathology_any
+              {report.summary?.has_pathology_any || report.has_pathology_any
                 ? "Обнаружена"
                 : "Не обнаружена"}
             </p>
 
             <ul className="patient-report__list">
               {report.rows?.map((row, index) => (
-                <li key={index} className="patient-report__item">
+                <li
+                  key={index}
+                  className="patient-report__item">
                   <div className="patient-report__probability">
                     <strong>Вероятность патологии:</strong>{" "}
                     <span

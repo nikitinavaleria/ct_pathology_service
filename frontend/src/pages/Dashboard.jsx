@@ -3,13 +3,17 @@ import Header from "../components/Header";
 import Footer from "../components/Footer";
 import PatientList from "../components/PatientList";
 import PatientForm from "../components/ui/form/PatientForm";
-import { createPatient, getPatient, getPatients } from "../api/api";
+import {
+  createPatient,
+  getPatient,
+  getPatients,
+  deletePatient,
+} from "../api/api";
 
 const Dashboard = () => {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [patients, setPatients] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedPatient, setSelectedPatient] = useState(null);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -25,9 +29,45 @@ const Dashboard = () => {
     fetchPatients();
   }, []);
 
+  // Listen for scans being created elsewhere (Dropzone) and update the patients list
+  useEffect(() => {
+    const handleScanCreated = async (e) => {
+      try {
+        const patientId = e?.detail?.patientId;
+        if (!patientId) return;
+
+        // Fetch updated patient and move it to the top of the list
+        const res = await getPatient(patientId);
+        const updatedPatient = res.data;
+
+        setPatients((prev) => {
+          const others = prev.filter((p) => p.id !== updatedPatient.id);
+          return [updatedPatient, ...others];
+        });
+      } catch (err) {
+        console.error(
+          "Ошибка при обновлении пациента после создания скана:",
+          err,
+        );
+      }
+    };
+
+    window.addEventListener("scan:created", handleScanCreated);
+    return () => window.removeEventListener("scan:created", handleScanCreated);
+  }, []);
+
+  const handleDeletePatient = async (id) => {
+    try {
+      await deletePatient(id);
+      setPatients((prev) => prev.filter((p) => p.id !== id));
+      console.log("Patient deleted:", id);
+    } catch (err) {
+      console.error("Ошибка при удалении пациента:", err);
+    }
+  };
+
   const handleAddPatientClick = () => {
     setIsFormVisible((prev) => !prev);
-    console.log("Toggle form visibility. Current:", isFormVisible);
   };
 
   const handleSubmit = async (e) => {
@@ -40,30 +80,23 @@ const Dashboard = () => {
         last_name: form.surname.value,
         description: form.description.value,
       });
-      console.log("Patient created, response:", response.data);
-
       const newPatientData = await getPatient(response.data.id);
-      console.log("Full patient data:", newPatientData.data);
 
-      setPatients((prev) => [
-        newPatientData.data,
-        ...(Array.isArray(prev) ? prev : []),
-      ]);
-      console.log("Updated patients:", [newPatientData.data, ...patients]);
-
+      setPatients((prev) => [newPatientData.data, ...prev]);
       setIsFormVisible(false);
     } catch (err) {
       console.error("Ошибка при создании пациента:", err);
     }
   };
 
-  const filteredPatients = patients.filter((p) => {
-    const query = searchQuery.toLowerCase();
-    return (
-      p.first_name.toLowerCase().startsWith(query) ||
-      p.last_name.toLowerCase().startsWith(query)
-    );
-  });
+  // Используем filteredPatients для фильтрации по поиску
+  const filteredPatients = searchQuery
+    ? patients.filter((p) =>
+        `${p.first_name} ${p.last_name}`
+          .toLowerCase()
+          .startsWith(searchQuery.toLowerCase()),
+      )
+    : patients;
 
   return (
     <div className="page__wrapper">
@@ -73,8 +106,6 @@ const Dashboard = () => {
         isFormVisible={isFormVisible}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
-        patients={patients}
-        onSelectPatient={setSelectedPatient}
       />
 
       {isFormVisible && (
@@ -86,16 +117,10 @@ const Dashboard = () => {
 
       <PatientList
         className="dashboard"
-        patients={
-          searchQuery
-            ? patients.filter((p) =>
-                `${p.first_name} ${p.last_name}`
-                  .toLowerCase()
-                  .startsWith(searchQuery.toLowerCase())
-              )
-            : patients
-        }
+        patients={filteredPatients}
+        onDeletePatient={handleDeletePatient}
       />
+
       <Footer />
     </div>
   );
