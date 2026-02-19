@@ -6,7 +6,6 @@ import MyButton from "../components/ui/MyButton/MyButton";
 import Dropzone from "../components/ui/Dropzone/Dropzone";
 import ScanDetailsModal from "../components/ui/ScanDetailsModal/ScanDetailsModal";
 import "../styles/PatientPage.css";
-import { exportToCSV } from "../utils/ExportCSV";
 
 const PatientPage = () => {
   const { id } = useParams();
@@ -17,15 +16,12 @@ const PatientPage = () => {
   const [error, setError] = useState(null);
   const [showDropzone, setShowDropzone] = useState(false);
 
-  const [newScanReport, setNewScanReport] = useState(null);
+  const [scanReport, setScanReport] = useState(null);
   const [newScanId, setNewScanId] = useState(null);
   const [selectedScanId, setSelectedScanId] = useState(null);
 
   const reportRef = useRef(null);
 
-  /* =======================
-     Загрузка пациента и сканов
-  ======================== */
   useEffect(() => {
     const fetchPatientData = async () => {
       try {
@@ -51,9 +47,6 @@ const PatientPage = () => {
     fetchPatientData();
   }, [id]);
 
-  /* =======================
-     Подгрузка отчетов для сканов без них
-  ======================== */
   useEffect(() => {
     if (!scans.length) return;
 
@@ -65,6 +58,7 @@ const PatientPage = () => {
         const reports = await Promise.all(
           scansWithoutReport.map((s) => getScanReport(s.id)),
         );
+
         setScans((prev) =>
           prev.map((scan) => {
             const index = scansWithoutReport.findIndex((s) => s.id === scan.id);
@@ -84,9 +78,6 @@ const PatientPage = () => {
     fetchReports();
   }, [scans]);
 
-  /* =======================
-     Добавление нового скана
-  ======================== */
   const handleScanAnalyzed = ({ scan, report }) => {
     setScanReport(report);
 
@@ -134,16 +125,10 @@ const PatientPage = () => {
   const handleViewScan = (scanId) => setSelectedScanId(scanId);
   const handleCloseModal = () => setSelectedScanId(null);
 
-  /* =======================
-     Проверка загрузки
-  ======================== */
   if (loading) return <div>Загрузка данных пациента...</div>;
   if (error) return <div>{error}</div>;
   if (!patient) return <div>Пациент не найден</div>;
 
-  /* =======================
-     Render
-  ======================== */
   return (
     <div className="patient-page">
       <h1 className="patient-page__title">
@@ -163,7 +148,6 @@ const PatientPage = () => {
         ) : (
           <div className="scans-list">
             {scans.map((scan) => {
-              // Безопасная дата
               const scanDate = scan.created_at
                 ? new Date(scan.created_at)
                 : new Date();
@@ -230,7 +214,7 @@ const PatientPage = () => {
               <h3>Отчёт по исследованию</h3>
               <p>
                 Потенциальная патология:{" "}
-                {newScanReport.summary?.has_pathology_any
+                {scanReport.summary?.has_pathology_any
                   ? "Обнаружена"
                   : "Не обнаружена"}
               </p>
@@ -243,7 +227,7 @@ const PatientPage = () => {
             onScanAnalyzed={handleScanAnalyzed}
             onRemovePatient={() => {
               setShowDropzone(false);
-              setNewScanReport(null);
+              setScanReport(null);
               setNewScanId(null);
             }}
           />
