@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { getScan, getScanReport } from "../../../api/api";
 import MyButton from "../MyButton/MyButton";
 import "./ScanDetailsModal.css";
-import { exportToCSV } from "../../../utils/ExportCSV";
 
 const ScanDetailsModal = ({ scanId, onClose }) => {
   const [scan, setScan] = useState(null);
@@ -73,7 +72,6 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
           {report && (
             <div className="scan-details__report">
               <h4>Отчёт по исследованию</h4>
-
               <p>
                 Потенциальная патология:{" "}
                 {report.summary?.has_pathology_any || report.has_pathology_any
