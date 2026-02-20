@@ -32,18 +32,30 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
     fetchScanData();
   }, [scanId]);
 
-  // Закрытие модалки при клике на фон
   const handleBackdropClick = (e) => {
     if (e.target === e.currentTarget) {
       onClose();
     }
   };
 
-  // Пока данные не пришли — показываем загрузку
   if (loading) return <div className="modal-backdrop">Загрузка...</div>;
   if (error) return <div className="modal-backdrop">{error}</div>;
   if (!scan)
     return <div className="modal-backdrop">Исследование не найдено</div>;
+
+  // has_pathology is INT (0/1) in DB — use explicit numeric comparison
+  const hasPathology = report ? Number(report.has_pathology) === 1 : false;
+  // pathology_prob is REAL in DB — safe to use as number
+  const pathologyProb =
+    report?.pathology_prob != null ? Number(report.pathology_prob) : null;
+  // pathology_avg_prob is TEXT in DB — must convert to number
+  const avgProb =
+    report?.pathology_avg_prob != null
+      ? Number(report.pathology_avg_prob)
+      : null;
+  // pathology_count is TEXT in DB — must convert to number
+  const pathologyCount =
+    report?.pathology_count != null ? Number(report.pathology_count) : null;
 
   return (
     <div
@@ -74,40 +86,43 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
               <h4>Отчёт по исследованию</h4>
               <p>
                 Потенциальная патология:{" "}
-                {report.summary?.has_pathology_any || report.has_pathology_any
-                  ? "Обнаружена"
-                  : "Не обнаружена"}
+                {hasPathology ? "Обнаружена" : "Не обнаружена"}
               </p>
 
-              <ul>
-                {report.rows?.map((row, i) => (
-                  <li key={i}>
-                    <strong>Вероятность:</strong>{" "}
-                    {row.prob_pathology != null
-                      ? row.prob_pathology.toFixed(2)
-                      : "Н/Д"}
-                    <br />
-                    {row.pathology_cls_ru && (
-                      <>
-                        <strong>Тип:</strong> {row.pathology_cls_ru}
-                        <br />
-                      </>
-                    )}
-                    {row.pathology_cls_count > 0 && (
-                      <>
-                        <strong>Классов:</strong> {row.pathology_cls_count}
-                        <br />
-                      </>
-                    )}
-                    {row.pathology_cls_avg_prob != null && (
-                      <>
-                        <strong>Средняя вероятность:</strong>{" "}
-                        {row.pathology_cls_avg_prob.toFixed(2)}
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              {pathologyProb != null && !isNaN(pathologyProb) && (
+                <div className="scan-details__probability">
+                  <h4>Вероятность патологии</h4>
+                  <div className="probability-value">
+                    {pathologyProb.toFixed(2)}
+                  </div>
+                </div>
+              )}
+
+              {report.pathology_ru && (
+                <div className="scan-details__pathology">
+                  <h4>Тип патологии</h4>
+                  <div className="pathology-value">
+                    {report.pathology_ru}
+                    {report.pathology_en && ` (${report.pathology_en})`}
+                  </div>
+                </div>
+              )}
+
+              {pathologyCount != null &&
+                !isNaN(pathologyCount) &&
+                pathologyCount > 0 && (
+                  <div className="scan-details__count">
+                    <h4>Количество обнаружений</h4>
+                    <div className="count-value">{pathologyCount}</div>
+                  </div>
+                )}
+
+              {avgProb != null && !isNaN(avgProb) && (
+                <div className="scan-details__avg-prob">
+                  <h4>Средняя вероятность</h4>
+                  <div className="avg-prob-value">{avgProb.toFixed(2)}</div>
+                </div>
+              )}
             </div>
           )}
 

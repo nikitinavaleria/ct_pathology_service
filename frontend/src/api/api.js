@@ -30,7 +30,8 @@ export const deleteScan = (id) => api.delete(`/scans/${id}`);
 export const downloadScanFile = (id) =>
   api.get(`/scans/${id}/file`, { responseType: "blob" });
 
-export const analyzeScan = (id) => api.post(`/scans/${id}/analyze`);
+export const analyzeScan = (id) => api.post(`/scans/${id}/vlad_analyze`);
+export const analyzeScanYolo = (id) => api.post(`/scans/${id}/yolo_analyze`);
 export const getScanReport = (id) => api.get(`/scans/${id}/report`);
 
 export default api;

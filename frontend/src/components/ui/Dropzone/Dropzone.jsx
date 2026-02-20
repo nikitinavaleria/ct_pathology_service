@@ -73,18 +73,22 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
 
       const scanId = createdScan.id;
 
-      // 2️⃣ Запускаем анализ
-      const analyzeResponse = await axios.post(`/api/scans/${scanId}/analyze`);
-      console.log("Analyze response:", analyzeResponse.data);
+      // 2️⃣ Запускаем оба анализа (бинарная классификация + YOLO детализация)
+      const [vladResponse, yoloResponse] = await Promise.all([
+        axios.post(`/api/scans/${scanId}/vlad_analyze`),
+        axios.post(`/api/scans/${scanId}/yolo_analyze`),
+      ]);
+      console.log("Vlad analyze response:", vladResponse.data);
+      console.log("Yolo analyze response:", yoloResponse.data);
 
-      // 3️⃣ Получаем отчёт
+      // 3️⃣ Получаем полный отчёт
       const reportResponse = await getScanReport(scanId);
       console.log("Report response:", reportResponse.data);
 
       const report = {
         ...reportResponse.data,
-        mask_path: analyzeResponse.data.mask_path,
-        explain_mask_b64: analyzeResponse.data.explain_mask_b64,
+        mask_path: vladResponse.data.mask_path,
+        explain_mask_b64: vladResponse.data.explain_mask_b64,
       };
 
       if (onScanAnalyzed) {

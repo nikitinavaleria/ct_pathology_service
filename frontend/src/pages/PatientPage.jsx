@@ -129,6 +129,12 @@ const PatientPage = () => {
   if (error) return <div>{error}</div>;
   if (!patient) return <div>Пациент не найден</div>;
 
+  // has_pathology is INT (0/1) in DB — use explicit numeric comparison
+  const reportHasPathology = scanReport ? Number(scanReport.has_pathology) === 1 : false;
+  const reportProb = scanReport?.pathology_prob != null ? Number(scanReport.pathology_prob) : null;
+  const reportAvgProb = scanReport?.pathology_avg_prob != null ? Number(scanReport.pathology_avg_prob) : null;
+  const reportCount = scanReport?.pathology_count != null ? Number(scanReport.pathology_count) : null;
+
   return (
     <div className="patient-page">
       <h1 className="patient-page__title">
@@ -151,6 +157,9 @@ const PatientPage = () => {
               const scanDate = scan.created_at
                 ? new Date(scan.created_at)
                 : new Date();
+              const scanHasPathology = scan.report
+                ? Number(scan.report.has_pathology) === 1
+                : false;
 
               return (
                 <div
@@ -162,11 +171,11 @@ const PatientPage = () => {
                     </h3>
                     <span
                       className={`scan-card__status ${
-                        scan.report?.summary?.has_pathology_any
+                        scanHasPathology
                           ? "pathology"
                           : "healthy"
                       }`}>
-                      {scan.report?.summary?.has_pathology_any
+                      {scanHasPathology
                         ? "Обнаружена патология"
                         : "Патология не обнаружена"}
                     </span>
@@ -214,10 +223,31 @@ const PatientPage = () => {
               <h3>Отчёт по исследованию</h3>
               <p>
                 Потенциальная патология:{" "}
-                {scanReport.summary?.has_pathology_any
+                {reportHasPathology
                   ? "Обнаружена"
                   : "Не обнаружена"}
               </p>
+              {reportProb != null && !isNaN(reportProb) && (
+                <p>
+                  Вероятность патологии:{" "}
+                  {reportProb.toFixed(2)}
+                </p>
+              )}
+              {scanReport?.pathology_ru && (
+                <p>
+                  Тип патологии: {scanReport.pathology_ru}
+                </p>
+              )}
+              {reportCount != null && !isNaN(reportCount) && reportCount > 0 && (
+                <p>
+                  Количество обнаружений: {reportCount}
+                </p>
+              )}
+              {reportAvgProb != null && !isNaN(reportAvgProb) && (
+                <p>
+                  Средняя вероятность: {reportAvgProb.toFixed(2)}
+                </p>
+              )}
             </div>
           )}
 

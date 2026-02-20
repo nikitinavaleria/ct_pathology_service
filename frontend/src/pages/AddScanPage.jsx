@@ -60,11 +60,18 @@ const AddScanPage = () => {
     }
   };
 
-  const handleScanAnalyzed = (data) => {
-    if (!data) return;
-
-    setReport(data);
+  // Dropzone passes { scan, report } — destructure to extract just the report
+  const handleScanAnalyzed = ({ scan, report: reportData }) => {
+    if (!reportData) return;
+    setReport(reportData);
   };
+
+  // has_pathology is INT (0/1) in DB — use explicit numeric comparison
+  const hasPathology = report ? Number(report.has_pathology) === 1 : false;
+  // pathology_prob is REAL — safe to use as number
+  const pathologyProb = report?.pathology_prob != null ? Number(report.pathology_prob) : null;
+  // pathology_avg_prob is TEXT in DB — must convert
+  const avgProb = report?.pathology_avg_prob != null ? Number(report.pathology_avg_prob) : null;
 
   return (
     <div className="add-scan-page">
@@ -121,51 +128,38 @@ const AddScanPage = () => {
             <h3>Отчёт по исследованию</h3>
             <p>
               Потенциальная патология:{" "}
-              {report.summary?.has_pathology_any || report.has_pathology_any
+              {hasPathology
                 ? "Обнаружена"
                 : "Не обнаружена"}
             </p>
 
-            <ul className="patient-report__list">
-              {report.rows?.map((row, index) => (
-                <li
-                  key={index}
-                  className="patient-report__item">
-                  <div className="patient-report__probability">
-                    <strong>Вероятность наличия патологии:</strong>
-                    <span
-                      className={
-                        row.prob_pathology && row.prob_pathology > 0.5
-                          ? "high-probability"
-                          : "low-probability"
-                      }>
-                      {row.prob_pathology
-                        ? row.prob_pathology.toFixed(2)
-                        : "Н/Д"}
-                    </span>
-                  </div>
-                  {row.pathology_cls_ru && (
-                    <div className="patient-report__pathology">
-                      <strong>Тип патологии:</strong> {row.pathology_cls_ru}
-                    </div>
-                  )}
-                  {row.processing_status && (
-                    <div className="patient-report__status">
-                      <strong>Статус обработки:</strong> {row.processing_status}
-                    </div>
-                  )}
+            <div className="patient-report__item">
+              {pathologyProb != null && !isNaN(pathologyProb) && (
+                <div className="patient-report__probability">
+                  <strong>Вероятность наличия патологии:</strong>
+                  <span
+                    className={
+                      pathologyProb > 0.5
+                        ? "high-probability"
+                        : "low-probability"
+                    }>
+                    {pathologyProb.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {report.pathology_ru && (
+                <div className="patient-report__pathology">
+                  <strong>Тип патологии:</strong> {report.pathology_ru}
+                </div>
+              )}
 
-                  {row.pathology_cls_avg_prob && (
-                    <div className="patient-report__avg-prob">
-                      <strong>Средняя вероятность:</strong>{" "}
-                      {row.pathology_cls_avg_prob
-                        ? row.pathology_cls_avg_prob.toFixed(2)
-                        : "Н/Д"}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+              {avgProb != null && !isNaN(avgProb) && (
+                <div className="patient-report__avg-prob">
+                  <strong>Средняя вероятность:</strong>{" "}
+                  {avgProb.toFixed(2)}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
