@@ -1,4 +1,4 @@
-import { createScan, analyzeScan } from "../api/api";
+import { createScan, analyzeScan, analyzeScanYolo } from "../api/api";
 
 export const uploadScan = async (files, onProgress) => {
   const formData = new FormData();
@@ -16,8 +16,16 @@ export const uploadScan = async (files, onProgress) => {
 
     const scanId = res.data.id;
 
-    const analyzeRes = await analyzeScan(scanId);
-    return analyzeRes.data;
+    // Run both analyses in parallel for full report data
+    const [vladRes, yoloRes] = await Promise.all([
+      analyzeScan(scanId),
+      analyzeScanYolo(scanId),
+    ]);
+
+    return {
+      ...vladRes.data,
+      ...yoloRes.data,
+    };
   } catch (err) {
     console.error("Ошибка при загрузке:", err);
     throw err;

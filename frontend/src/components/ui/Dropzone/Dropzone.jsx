@@ -10,15 +10,14 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const fileInputRef = useRef(null);
 
   const handleFile = (newFile) => {
-    if (!newFile) return;
+    if (!newFile || newFile.length === 0) return;
     setFile(newFile[0]);
     setUploadProgress(0);
-    if (onScanAnalyzed) {
-      onScanAnalyzed(null);
-    }
+    setErrorMessage("");
   };
 
   const handleDrop = (e) => {
@@ -37,7 +36,14 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
   const handleDragLeave = () => setIsDragOver(false);
 
   const uploadAndAnalyze = async () => {
-    if (!patientId || !file) return;
+    if (!patientId) {
+      setErrorMessage("Пожалуйста, выберите пациента.");
+      return;
+    }
+    if (!file) {
+      setErrorMessage("Файл не выбран.");
+      return;
+    }
 
     const formData = new FormData();
     formData.append("file", file);
@@ -45,42 +51,84 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
     formData.append("description", description || "");
 
     try {
+      setIsUploading(true);
+      setErrorMessage("");
+
+      console.log("Uploading file:", file.name, "Patient ID:", patientId);
+
+      // 1️⃣ Загружаем файл
       const response = await axios.post("/api/scans", formData, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (e) => {
           const percent = Math.round((e.loaded * 100) / e.total);
           setUploadProgress(percent);
-          setIsUploading(true);
         },
       });
-      setIsAnalyzing(true);
+
+      const createdScan = response.data;
+      console.log("Scan created:", createdScan);
+
       setIsUploading(false);
-      const scanId = response.data.id;
+      setIsAnalyzing(true);
 
-      const analyzeResponse = await axios.post(`/api/scans/${scanId}/analyze`);
-      const reportFromAnalyze = analyzeResponse.data;
+      const scanId = createdScan.id;
 
-      const reportFromReport = await getScanReport(scanId);
+      // 2️⃣ Запускаем оба анализа (бинарная классификация + YOLO детализация)
+      const [vladResponse, yoloResponse] = await Promise.all([
+        axios.post(`/api/scans/${scanId}/vlad_analyze`),
+        axios.post(`/api/scans/${scanId}/yolo_analyze`),
+      ]);
+      console.log("Vlad analyze response:", vladResponse.data);
+      console.log("Yolo analyze response:", yoloResponse.data);
 
-      const fullReport = {
-        ...reportFromReport,
-        mask_path: reportFromAnalyze.mask_path,
-        explain_mask_b64: reportFromAnalyze.explain_mask_b64,
+      // 3️⃣ Получаем полный отчёт
+      const reportResponse = await getScanReport(scanId);
+      console.log("Report response:", reportResponse.data);
+
+      const report = {
+        ...reportResponse.data,
+        mask_path: vladResponse.data.mask_path,
+        explain_mask_b64: vladResponse.data.explain_mask_b64,
       };
 
       if (onScanAnalyzed) {
         onScanAnalyzed({
-          ...fullReport.data,
-          mask_path: analyzeResponse.data.mask_path,
+          scan: createdScan,
+          report: report.data ?? report, // если report.data нет, возвращаем весь report
         });
+        // dispatch a global event so other pages (e.g. Dashboard) can react
+        try {
+          window.dispatchEvent(
+            new CustomEvent("scan:created", {
+              detail: {
+                patientId,
+                scan: createdScan,
+                report: report.data ?? report,
+              },
+            }),
+          );
+        } catch (e) {
+          // ignore in environments without window/CustomEvent
+          console.warn("Could not dispatch scan:created event", e);
+        }
       }
-
-      console.log(analyzeResponse);
     } catch (err) {
       console.error("Ошибка при загрузке или анализе:", err);
+
+      // Детальный вывод ошибки
+      if (err.response) {
+        console.error("Ответ сервера:", err.response.data);
+        setErrorMessage(
+          `Ошибка сервера: ${err.response.status} — ${err.response.data?.message || "Неизвестно"}`,
+        );
+      } else if (err.request) {
+        setErrorMessage("Сервер не отвечает. Проверьте соединение.");
+      } else {
+        setErrorMessage(`Ошибка: ${err.message}`);
+      }
     } finally {
-      setUploadProgress(100);
       setIsAnalyzing(false);
+      setIsUploading(false);
       setUploadProgress(0);
     }
   };
@@ -112,7 +160,8 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
         <div className={cl.progressBar}>
           <div
             className={cl.progress}
-            style={{ width: `${uploadProgress}%` }}></div>
+            style={{ width: `${uploadProgress}%` }}
+          />
         </div>
       )}
 
@@ -126,6 +175,12 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
       {isUploading && (
         <div className="uploading-message">
           <span>Пожалуйста, подождите, ваш файл загружается в модель</span>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className={cl.errorMessage}>
+          <strong>Ошибка:</strong> {errorMessage}
         </div>
       )}
 

@@ -1,22 +1,11 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import PatientCard from "./ui/PatientCard/PatientCard";
-import { deletePatient as deletePatientApi } from "../api/api";
 
-const PatientList = ({ className, patients }) => {
+const PatientList = ({ className, patients, onDeletePatient }) => {
   const navigate = useNavigate();
 
   const openPatientPage = (id) => navigate(`/patient/${id}`);
-
-  const handleDeletePatient = async (id) => {
-    try {
-      await deletePatientApi(id);
-      console.log("Patient deleted:", id);
-      window.location.reload(); //TODO 👈 временное решение, лучше обновлять список через state
-    } catch (err) {
-      console.error("Ошибка при удалении пациента:", err);
-    }
-  };
 
   if (!patients) return <p>Загрузка пациентов...</p>;
   if (patients.length === 0) return <p>Пациенты не найдены.</p>;
@@ -33,7 +22,7 @@ const PatientList = ({ className, patients }) => {
             description={patient.description}
             createdAt={patient.created_at}
             updatedAt={patient.updated_at}
-            onDeletePatient={() => handleDeletePatient(patient.id)}
+            onDeletePatient={() => onDeletePatient(patient.id)}
             openPatientPage={() => openPatientPage(patient.id)}
           />
         ))}

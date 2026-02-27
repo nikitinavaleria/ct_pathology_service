@@ -1,31 +1,32 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import Footer from "../components/Footer";
 import { getPatient, getScans, deleteScan, getScanReport } from "../api/api";
 import MyButton from "../components/ui/MyButton/MyButton";
 import Dropzone from "../components/ui/Dropzone/Dropzone";
 import ScanDetailsModal from "../components/ui/ScanDetailsModal/ScanDetailsModal";
 import "../styles/PatientPage.css";
-import { exportToCSV } from "../utils/ExportCSV";
 
 const PatientPage = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
+
   const [patient, setPatient] = useState(null);
   const [scans, setScans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showDropzone, setShowDropzone] = useState(false);
 
-  const [newScanReport, setNewScanReport] = useState(null);
+  const [scanReport, setScanReport] = useState(null);
   const [newScanId, setNewScanId] = useState(null);
   const [selectedScanId, setSelectedScanId] = useState(null);
+
   const reportRef = useRef(null);
 
   useEffect(() => {
     const fetchPatientData = async () => {
       try {
         setLoading(true);
+
         const patientResponse = await getPatient(id);
         setPatient(patientResponse.data);
 
@@ -35,10 +36,10 @@ const PatientPage = () => {
           : (scansResponse.data?.items ?? []);
 
         setScans(fetchedScans);
-        setLoading(false);
       } catch (err) {
         console.error("Ошибка при загрузке данных пациента:", err);
         setError("Не удалось загрузить данные пациента");
+      } finally {
         setLoading(false);
       }
     };
@@ -47,74 +48,98 @@ const PatientPage = () => {
   }, [id]);
 
   useEffect(() => {
+    if (!scans.length) return;
+
+    const scansWithoutReport = scans.filter((s) => !s.report);
+    if (!scansWithoutReport.length) return;
+
     const fetchReports = async () => {
       try {
         const reports = await Promise.all(
-          scans.map((s) => getScanReport(s.id)),
+          scansWithoutReport.map((s) => getScanReport(s.id)),
         );
+
         setScans((prev) =>
-          prev.map((scan, i) => ({
-            ...scan,
-            report: reports[i].data,
-          })),
+          prev.map((scan) => {
+            const index = scansWithoutReport.findIndex((s) => s.id === scan.id);
+            if (index === -1) return scan;
+
+            return {
+              ...scan,
+              report: reports[index].data,
+            };
+          }),
         );
       } catch (err) {
-        console.error("Ошибка при загрузке репортов:", err);
+        console.error("Ошибка при загрузке отчетов:", err);
       }
     };
 
-    if (scans.length > 0) fetchReports();
+    fetchReports();
   }, [scans]);
 
-  const handleAddScan = () => {
-    setShowDropzone(true);
-    setNewScanReport(null);
-    setNewScanId(null);
-    setTimeout(() => {
-      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-    }, 100);
-  };
+  const handleScanAnalyzed = ({ scan, report }) => {
+    setScanReport(report);
 
-  const handleScanAnalyzed = (report, scanId) => {
-    setNewScanReport(report);
-    setNewScanId(scanId);
+    setScans((prev) => [
+      {
+        ...scan,
+        report,
+        created_at: scan.created_at || new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+
     setTimeout(() => {
-      reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      reportRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     }, 300);
   };
 
-  const handleViewScan = (scanId) => setSelectedScanId(scanId);
-  const handleCloseModal = () => setSelectedScanId(null);
+  const handleAddScan = () => {
+    setShowDropzone(true);
+    setScanReport(null);
+
+    setTimeout(() => {
+      window.scrollTo({
+        top: document.body.scrollHeight,
+        behavior: "smooth",
+      });
+    }, 100);
+  };
 
   const handleDeleteScan = async (scanId) => {
     if (!window.confirm("Вы уверены, что хотите удалить этот скан?")) return;
+
     try {
       await deleteScan(scanId);
-      setScans(scans.filter((scan) => scan.id !== scanId));
+      setScans((prev) => prev.filter((scan) => scan.id !== scanId));
     } catch (err) {
       console.error("Ошибка при удалении скана:", err);
       alert("Не удалось удалить скан");
     }
   };
 
+  const handleViewScan = (scanId) => setSelectedScanId(scanId);
+  const handleCloseModal = () => setSelectedScanId(null);
+
   if (loading) return <div>Загрузка данных пациента...</div>;
   if (error) return <div>{error}</div>;
   if (!patient) return <div>Пациент не найден</div>;
 
+  // has_pathology is INT (0/1) in DB — use explicit numeric comparison
+  const reportHasPathology = scanReport ? Number(scanReport.has_pathology) === 1 : false;
+  const reportProb = scanReport?.pathology_prob != null ? Number(scanReport.pathology_prob) : null;
+  const reportAvgProb = scanReport?.pathology_avg_prob != null ? Number(scanReport.pathology_avg_prob) : null;
+  const reportCount = scanReport?.pathology_count != null ? Number(scanReport.pathology_count) : null;
+
   return (
     <div className="patient-page">
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "2rem 0",
-        }}>
-        <h1 className="patient-page__title">
-          {patient.first_name} {patient.last_name}
-        </h1>
-        <MyButton onClick={() => navigate("/")}>На главную</MyButton>
-      </div>
+      <h1 className="patient-page__title">
+        {patient.first_name} {patient.last_name}
+      </h1>
 
       <div className="scans-section">
         <div className="scans-header">
@@ -128,99 +153,101 @@ const PatientPage = () => {
           <p className="no-scans-message">У пациента пока нет исследований</p>
         ) : (
           <div className="scans-list">
-            {scans.map((scan) => (
-              <div key={scan.id} className="scan-card">
-                <div className="scan-card__header">
-                  <h3>
-                    Исследование от{" "}
-                    {new Date(scan.created_at).toLocaleDateString("ru-RU")}
-                  </h3>
-                  <span
-                    className={`scan-card__status ${
-                      scan.report?.summary?.has_pathology_any
-                        ? "pathology"
-                        : "healthy"
-                    }`}>
-                    {scan.report?.summary?.has_pathology_any
-                      ? "Обнаружена патология"
-                      : "Патология не обнаружена"}
-                  </span>
-                </div>
+            {scans.map((scan) => {
+              const scanDate = scan.created_at
+                ? new Date(scan.created_at)
+                : new Date();
+              const scanHasPathology = scan.report
+                ? Number(scan.report.has_pathology) === 1
+                : false;
 
-                {scan.preview_url && (
-                  <div className="scan-card__image">
-                    <img src={scan.preview_url} alt="Предпросмотр скана" />
+              return (
+                <div
+                  key={scan.id}
+                  className="scan-card">
+                  <div className="scan-card__header">
+                    <h3>
+                      Исследование от {scanDate.toLocaleDateString("ru-RU")}
+                    </h3>
+                    <span
+                      className={`scan-card__status ${
+                        scanHasPathology
+                          ? "pathology"
+                          : "healthy"
+                      }`}>
+                      {scanHasPathology
+                        ? "Обнаружена патология"
+                        : "Патология не обнаружена"}
+                    </span>
                   </div>
-                )}
-                {scan.comment && (
-                  <p className="scan-card__comment">{scan.comment}</p>
-                )}
 
-                <div className="scan-card__actions">
-                  <MyButton onClick={() => handleViewScan(scan.id)}>
-                    Просмотреть детали
-                  </MyButton>
-                  <MyButton
-                    onClick={() => handleDeleteScan(scan.id)}
-                    className="patient-card-delete">
-                    Удалить
-                  </MyButton>
+                  {scan.preview_url && (
+                    <div className="scan-card__image">
+                      <img
+                        src={scan.preview_url}
+                        alt="Предпросмотр скана"
+                      />
+                    </div>
+                  )}
+
+                  {scan.comment && (
+                    <p className="scan-card__comment">{scan.comment}</p>
+                  )}
+
+                  <div className="scan-card__actions">
+                    <MyButton
+                      onClick={() => handleViewScan(scan.id)}
+                      style={{ background: "#2196F3", color: "white" }}>
+                      Просмотреть детали
+                    </MyButton>
+
+                    <MyButton
+                      onClick={() => handleDeleteScan(scan.id)}
+                      className="patient-card-delete">
+                      Удалить
+                    </MyButton>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {showDropzone && (
         <div>
-          {newScanReport && (
-            <div className="patient-report" ref={reportRef}>
+          {scanReport && (
+            <div
+              className="patient-report"
+              ref={reportRef}>
               <h3>Отчёт по исследованию</h3>
               <p>
                 Потенциальная патология:{" "}
-                {newScanReport.summary?.has_pathology_any
+                {reportHasPathology
                   ? "Обнаружена"
                   : "Не обнаружена"}
               </p>
-              <ul className="patient-report__list">
-                {newScanReport.rows?.map((row, index) => (
-                  <li key={index} className="patient-report__item">
-                    <div>
-                      <strong>Вероятность наличия патологии:</strong>{" "}
-                      <span
-                        className={
-                          row.prob_pathology && row.prob_pathology > 0.5
-                            ? "high-probability"
-                            : "low-probability"
-                        }>
-                        {row.prob_pathology
-                          ? row.prob_pathology.toFixed(2)
-                          : "Н/Д"}
-                      </span>
-                    </div>
-                    {row.pathology_cls_ru && (
-                      <div>
-                        <strong>Тип патологии:</strong> {row.pathology_cls_ru}
-                      </div>
-                    )}
-                    {row.processing_status && (
-                      <div>
-                        <strong>Статус обработки:</strong>{" "}
-                        {row.processing_status}
-                      </div>
-                    )}
-                    {row.pathology_cls_avg_prob && (
-                      <div>
-                        <strong>Вероятность патологии:</strong>{" "}
-                        {row.pathology_cls_avg_prob
-                          ? row.pathology_cls_avg_prob.toFixed(2)
-                          : "Н/Д"}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              {reportProb != null && !isNaN(reportProb) && (
+                <p>
+                  Вероятность патологии:{" "}
+                  {reportProb.toFixed(2)}
+                </p>
+              )}
+              {scanReport?.pathology_ru && (
+                <p>
+                  Тип патологии: {scanReport.pathology_ru}
+                </p>
+              )}
+              {reportCount != null && !isNaN(reportCount) && reportCount > 0 && (
+                <p>
+                  Количество обнаружений: {reportCount}
+                </p>
+              )}
+              {reportAvgProb != null && !isNaN(reportAvgProb) && (
+                <p>
+                  Средняя вероятность: {reportAvgProb.toFixed(2)}
+                </p>
+              )}
             </div>
           )}
 
@@ -230,7 +257,7 @@ const PatientPage = () => {
             onScanAnalyzed={handleScanAnalyzed}
             onRemovePatient={() => {
               setShowDropzone(false);
-              setNewScanReport(null);
+              setScanReport(null);
               setNewScanId(null);
             }}
           />
@@ -238,8 +265,12 @@ const PatientPage = () => {
       )}
 
       {selectedScanId && (
-        <ScanDetailsModal scanId={selectedScanId} onClose={handleCloseModal} />
+        <ScanDetailsModal
+          scanId={selectedScanId}
+          onClose={handleCloseModal}
+        />
       )}
+
       <Footer />
     </div>
   );
