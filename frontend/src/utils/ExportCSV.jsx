@@ -8,14 +8,20 @@ export const exportToCSV = (report, fileName) => {
   }
 
   const sheetData = [
-    { "Ключ": "Исследование UID", "Значение": report.study_uid ?? "—" },
-    { "Ключ": "Серия UID", "Значение": report.series_uid ?? "—" },
-    { "Ключ": "Наличие патологии", "Значение": report.has_pathology ? "Обнаружена" : "Не обнаружена" },
-    { "Ключ": "Вероятность наличия патологии", "Значение": report.pathology_prob?.toFixed(3) ?? "—" },
-    { "Ключ": "Тип патологии (EN)", "Значение": report.pathology_en ?? "—" },
-    { "Ключ": "Тип патологии (RU)", "Значение": report.pathology_ru ?? "—" },
-    { "Ключ": "Количество обнаружений", "Значение": report.pathology_count ?? "—" },
-    { "Ключ": "Средняя вероятность", "Значение": report.pathology_avg_prob?.toFixed(3) ?? "—" },
+    { Ключ: "Исследование UID", Значение: report.study_uid ?? "—" },
+    { Ключ: "Серия UID", Значение: report.series_uid ?? "—" },
+    {
+      Ключ: "Наличие патологии",
+      Значение: report.has_pathology ? "Обнаружена" : "Не обнаружена",
+    },
+    {
+      Ключ: "Вероятность наличия патологии",
+      Значение: report.pathology_prob?.toFixed(3) ?? "—",
+    },
+    { Ключ: "Тип патологии (EN)", Значение: report.pathology_en ?? "—" },
+    { Ключ: "Тип патологии (RU)", Значение: report.pathology_ru ?? "—" },
+    { Ключ: "Количество обнаружений", Значение: report.pathology_count ?? "—" },
+    ,
   ];
 
   const ws = XLSX.utils.json_to_sheet(sheetData);

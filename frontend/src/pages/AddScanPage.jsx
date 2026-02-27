@@ -69,9 +69,13 @@ const AddScanPage = () => {
   // has_pathology is INT (0/1) in DB — use explicit numeric comparison
   const hasPathology = report ? Number(report.has_pathology) === 1 : false;
   // pathology_prob is REAL — safe to use as number
-  const pathologyProb = report?.pathology_prob != null ? Number(report.pathology_prob) : null;
+  const pathologyProb =
+    report?.pathology_prob != null ? Number(report.pathology_prob) : null;
   // pathology_avg_prob is TEXT in DB — must convert
-  const avgProb = report?.pathology_avg_prob != null ? Number(report.pathology_avg_prob) : null;
+  const avgProb =
+    report?.pathology_avg_prob != null
+      ? Number(report.pathology_avg_prob)
+      : null;
 
   return (
     <div className="add-scan-page">
@@ -128,9 +132,7 @@ const AddScanPage = () => {
             <h3>Отчёт по исследованию</h3>
             <p>
               Потенциальная патология:{" "}
-              {hasPathology
-                ? "Обнаружена"
-                : "Не обнаружена"}
+              {hasPathology ? "Обнаружена" : "Не обнаружена"}
             </p>
 
             <div className="patient-report__item">
@@ -150,13 +152,6 @@ const AddScanPage = () => {
               {report.pathology_ru && (
                 <div className="patient-report__pathology">
                   <strong>Тип патологии:</strong> {report.pathology_ru}
-                </div>
-              )}
-
-              {avgProb != null && !isNaN(avgProb) && (
-                <div className="patient-report__avg-prob">
-                  <strong>Средняя вероятность:</strong>{" "}
-                  {avgProb.toFixed(2)}
                 </div>
               )}
             </div>

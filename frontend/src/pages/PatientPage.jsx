@@ -130,10 +130,21 @@ const PatientPage = () => {
   if (!patient) return <div>Пациент не найден</div>;
 
   // has_pathology is INT (0/1) in DB — use explicit numeric comparison
-  const reportHasPathology = scanReport ? Number(scanReport.has_pathology) === 1 : false;
-  const reportProb = scanReport?.pathology_prob != null ? Number(scanReport.pathology_prob) : null;
-  const reportAvgProb = scanReport?.pathology_avg_prob != null ? Number(scanReport.pathology_avg_prob) : null;
-  const reportCount = scanReport?.pathology_count != null ? Number(scanReport.pathology_count) : null;
+  const reportHasPathology = scanReport
+    ? Number(scanReport.has_pathology) === 1
+    : false;
+  const reportProb =
+    scanReport?.pathology_prob != null
+      ? Number(scanReport.pathology_prob)
+      : null;
+  const reportAvgProb =
+    scanReport?.pathology_avg_prob != null
+      ? Number(scanReport.pathology_avg_prob)
+      : null;
+  const reportCount =
+    scanReport?.pathology_count != null
+      ? Number(scanReport.pathology_count)
+      : null;
 
   return (
     <div className="patient-page">
@@ -171,9 +182,7 @@ const PatientPage = () => {
                     </h3>
                     <span
                       className={`scan-card__status ${
-                        scanHasPathology
-                          ? "pathology"
-                          : "healthy"
+                        scanHasPathology ? "pathology" : "healthy"
                       }`}>
                       {scanHasPathology
                         ? "Обнаружена патология"
@@ -197,7 +206,7 @@ const PatientPage = () => {
                   <div className="scan-card__actions">
                     <MyButton
                       onClick={() => handleViewScan(scan.id)}
-                      style={{ background: "#2196F3", color: "white" }}>
+                      style={{ color: "white" }}>
                       Просмотреть детали
                     </MyButton>
 
@@ -223,31 +232,17 @@ const PatientPage = () => {
               <h3>Отчёт по исследованию</h3>
               <p>
                 Потенциальная патология:{" "}
-                {reportHasPathology
-                  ? "Обнаружена"
-                  : "Не обнаружена"}
+                {reportHasPathology ? "Обнаружена" : "Не обнаружена"}
               </p>
               {reportProb != null && !isNaN(reportProb) && (
-                <p>
-                  Вероятность патологии:{" "}
-                  {reportProb.toFixed(2)}
-                </p>
+                <p>Вероятность патологии: {reportProb.toFixed(2)}</p>
               )}
               {scanReport?.pathology_ru && (
-                <p>
-                  Тип патологии: {scanReport.pathology_ru}
-                </p>
+                <p>Тип патологии: {scanReport.pathology_ru}</p>
               )}
-              {reportCount != null && !isNaN(reportCount) && reportCount > 0 && (
-                <p>
-                  Количество обнаружений: {reportCount}
-                </p>
-              )}
-              {reportAvgProb != null && !isNaN(reportAvgProb) && (
-                <p>
-                  Средняя вероятность: {reportAvgProb.toFixed(2)}
-                </p>
-              )}
+              {reportCount != null &&
+                !isNaN(reportCount) &&
+                reportCount > 0 && <p>Количество обнаружений: {reportCount}</p>}
             </div>
           )}
 

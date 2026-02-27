@@ -51,7 +51,8 @@
   color: #f44336;
 }
 
-.modal-loading, .modal-error {
+.modal-loading,
+.modal-error {
   text-align: center;
   padding: 20px;
   font-size: 1.1rem;
@@ -97,11 +98,13 @@
   color: #2e7d32;
 }
 
-.scan-details__image, .scan-details__heatmap {
+.scan-details__image,
+.scan-details__heatmap {
   text-align: center;
 }
 
-.scan-details__image img, .scan-details__heatmap img {
+.scan-details__image img,
+.scan-details__heatmap img {
   max-width: 100%;
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -113,7 +116,9 @@
   border-radius: 4px;
 }
 
-.scan-details__info h4, .scan-details__heatmap h4, .scan-details__probability h4 {
+.scan-details__info h4,
+.scan-details__heatmap h4,
+.scan-details__probability h4 {
   margin-top: 0;
   margin-bottom: 10px;
   color: #333;
@@ -127,6 +132,10 @@
 
 .scan-details__info li {
   margin-bottom: 8px;
+}
+
+.scan-details__report-item {
+  margin-bottom: 20px;
 }
 
 .scan-details__probability,
@@ -191,7 +200,7 @@
     width: 95%;
     padding: 15px;
   }
-  
+
   .scan-details__header {
     flex-direction: column;
     align-items: flex-start;
