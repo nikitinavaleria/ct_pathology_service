@@ -84,7 +84,7 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
           {report && (
             <div className="scan-details__report">
               <h4>Отчёт по исследованию</h4>
-              <p>
+              <p className="scan-details__report-item">
                 Потенциальная патология:{" "}
                 {hasPathology ? "Обнаружена" : "Не обнаружена"}
               </p>
@@ -116,20 +116,13 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                     <div className="count-value">{pathologyCount}</div>
                   </div>
                 )}
-
-              {avgProb != null && !isNaN(avgProb) && (
-                <div className="scan-details__avg-prob">
-                  <h4>Средняя вероятность</h4>
-                  <div className="avg-prob-value">{avgProb.toFixed(2)}</div>
-                </div>
-              )}
             </div>
           )}
 
           <div className="scan-details__actions">
             <MyButton
               onClick={onClose}
-              style={{ background: "#2196F3", color: "white" }}>
+              style={{ color: "white" }}>
               Закрыть
             </MyButton>
           </div>

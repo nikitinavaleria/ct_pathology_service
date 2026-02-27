@@ -148,6 +148,9 @@ const Dropzone = ({ patientId, description, onScanAnalyzed }) => {
         Поддерживаемые форматы: ZIP-архивы с DICOM-сериями (.zip) и одиночные
         DICOM-файлы (.dcm, допускаются без расширения)
       </p>
+      <p className={cl.warningMessage}>
+        Mодель может ошибаться, внимательно проверяйте снимки{" "}
+      </p>
 
       <input
         type="file"
