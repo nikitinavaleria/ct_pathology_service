@@ -98,7 +98,7 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                 </div>
               )}
 
-              {report.pathology_ru && (
+              {hasPathology && report?.pathology_ru && (
                 <div className="scan-details__pathology">
                   <h4>Тип патологии</h4>
                   <div className="pathology-value">
@@ -107,15 +107,6 @@ const ScanDetailsModal = ({ scanId, onClose }) => {
                   </div>
                 </div>
               )}
-
-              {pathologyCount != null &&
-                !isNaN(pathologyCount) &&
-                pathologyCount > 0 && (
-                  <div className="scan-details__count">
-                    <h4>Количество обнаружений</h4>
-                    <div className="count-value">{pathologyCount}</div>
-                  </div>
-                )}
             </div>
           )}
 

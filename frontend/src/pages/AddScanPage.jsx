@@ -149,7 +149,7 @@ const AddScanPage = () => {
                   </span>
                 </div>
               )}
-              {report.pathology_ru && (
+              {hasPathology && report?.pathology_ru && (
                 <div className="patient-report__pathology">
                   <strong>Тип патологии:</strong> {report.pathology_ru}
                 </div>
