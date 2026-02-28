@@ -237,12 +237,9 @@ const PatientPage = () => {
               {reportProb != null && !isNaN(reportProb) && (
                 <p>Вероятность патологии: {reportProb.toFixed(2)}</p>
               )}
-              {scanReport?.pathology_ru && (
+              {reportHasPathology && scanReport?.pathology_ru && (
                 <p>Тип патологии: {scanReport.pathology_ru}</p>
               )}
-              {reportCount != null &&
-                !isNaN(reportCount) &&
-                reportCount > 0 && <p>Количество обнаружений: {reportCount}</p>}
             </div>
           )}
 
